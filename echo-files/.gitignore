@@ -1,0 +1,14 @@
+.DS_Store
+Thumbs.db
+node_modules/
+dist/
+.vscode/
+.idea/
+*.log
+
+# Local video files — keep the repo light, and never commit copyrighted footage
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4v
