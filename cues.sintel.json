@@ -1,0 +1,89 @@
+{
+  "film": "Sintel trailer (Blender Foundation, CC BY 3.0)",
+  "duration": 52.2,
+  "generatedBy": "DSP detection (measured) + vision naming pass following PROMPT.md",
+  "note": "Timings, loudness, duration and behaviour are measured from the waveform. Text, visibility and frame position come from the naming pass. Speech is left to Whisper and is not included here.",
+  "cues": [
+    {
+      "id": "s1", "start": 4.78, "end": 9.2,
+      "text": "a drone builds",
+      "kind": "music", "behavior": "approach", "intensity": 0.31, "texture": "clean",
+      "x": 0.5, "y": 0.9, "offscreen": "none", "visibility": "unseen", "confidence": 0.82,
+      "note": "Measured: sustained bed 4.78-11.75s, centroid 857 Hz, mean loudness 0.31 of peak. Low and rising. Nothing on screen accounts for it — the picture is a blizzard, which is its own visible thing. The drone is the film telling you something is coming."
+    },
+    {
+      "id": "s2", "start": 9.37, "end": 10.58,
+      "text": "a chord lands",
+      "kind": "music", "behavior": "punch", "intensity": 1.0, "texture": "clean",
+      "x": 0.5, "y": 0.46, "offscreen": "none", "visibility": "unseen", "confidence": 0.94,
+      "note": "The loudest and sharpest event in the film — loudness 1.00, onset strength 1.00, centroid 1333 Hz. It lands on a black title card. There is nothing on screen at all. This is the single clearest case in the whole trailer for a caption: the sound IS the moment, and a hearing viewer gets the entire jolt of it."
+    },
+    {
+      "id": "s3", "start": 16.55, "end": 18.18,
+      "text": "a spear strikes",
+      "kind": "effect", "behavior": "punch", "intensity": 0.92, "texture": "harsh",
+      "x": 0.36, "y": 0.4, "offscreen": "none", "visibility": "partly", "confidence": 0.71,
+      "note": "Measured: loudness 0.92, centroid 1047 Hz, 1.6s. Frame shows Sintel swinging a spear overhead in the blizzard. The swing is visible; the weight and hardness of the impact is not. Marked partly visible, so it renders at reduced intensity rather than being dropped."
+    },
+    {
+      "id": "s4", "start": 22.53, "end": 29.4,
+      "text": "the score climbs",
+      "kind": "music", "behavior": "approach", "intensity": 0.91, "texture": "clean",
+      "x": 0.5, "y": 0.92, "offscreen": "none", "visibility": "unseen", "confidence": 0.88,
+      "note": "Measured: 7 seconds, rising RMS, centroid 2106 Hz — bright, strings and brass. Under a run through ruins at sunset. Standard captions give this two seconds of [dramatic music] and then leave a Deaf viewer in silence for the rest of the build."
+    },
+    {
+      "id": "s5", "start": 29.99, "end": 33.05,
+      "text": "brass at full",
+      "kind": "music", "behavior": "sustain", "intensity": 0.99, "texture": "clean",
+      "x": 0.5, "y": 0.93, "offscreen": "none", "visibility": "unseen", "confidence": 0.85,
+      "note": "Measured: loudness 0.99, onset strength 0.77, centroid 2359 Hz — the brightest sustained passage in the film. The emotional peak, over the shot of Sintel with the dragon. Held for its real length instead of flashed once."
+    },
+    {
+      "id": "s6", "start": 38.66, "end": 41.6,
+      "text": "a low chord settles",
+      "kind": "music", "behavior": "recede", "intensity": 0.75, "texture": "clean",
+      "x": 0.5, "y": 0.91, "offscreen": "none", "visibility": "unseen", "confidence": 0.79,
+      "note": "Measured: loudness 0.75, centroid 756 Hz — much darker than the peak, and falling. Over the empty desert. The release after a climax is as structural as the build, and captions today have no way to say it."
+    },
+    {
+      "id": "s7", "start": 42.35, "end": 46.8,
+      "text": "the theme returns",
+      "kind": "music", "behavior": "sustain", "intensity": 0.94, "texture": "clean",
+      "x": 0.5, "y": 0.93, "offscreen": "none", "visibility": "unseen", "confidence": 0.8,
+      "note": "Measured: 6 seconds, loudness 0.94, centroid 1523 Hz. Over the SINTEL title. Nothing visual carries it."
+    },
+    {
+      "id": "s8", "start": 47.06, "end": 48.85,
+      "text": "the last chord",
+      "kind": "music", "behavior": "recede", "intensity": 0.94, "texture": "clean",
+      "x": 0.5, "y": 0.9, "offscreen": "none", "visibility": "unseen", "confidence": 0.86,
+      "note": "Measured: loudness 0.94, centroid 959 Hz, falling. On the logo, black screen. The film ends on a sound, and only a sound."
+    }
+  ],
+  "suppressed": [
+    {
+      "start": 0.0, "end": 4.5, "candidate": "wind and blizzard", "visibility": "visible",
+      "reason": "The screen is filled with driving snow across dark peaks. A Deaf viewer can see that it is windy. Captioning it would occupy the frame to say something the picture already says louder."
+    },
+    {
+      "start": 6.21, "end": 7.59, "candidate": "a gust, or a footfall in snow", "visibility": "visible",
+      "reason": "Measured loudness 0.56, centroid 976 Hz. Sintel is on screen walking through whiteout. Both plausible sources are visible."
+    },
+    {
+      "start": 17.43, "end": 18.5, "candidate": "low follow-through after the strike", "visibility": "partly",
+      "reason": "Measured loudness 0.66, centroid 586 Hz. Arrives 0.9s after the spear strike already captioned. Two captions for one action reads as stutter."
+    },
+    {
+      "start": 26.37, "end": 32.34, "candidate": "score, overlapping detection", "visibility": "unseen",
+      "reason": "Same musical passage already captured by s4 and s5. The detector fired six times inside one crescendo. Merged rather than repeated."
+    },
+    {
+      "start": 37.01, "end": 37.44, "candidate": "a high shimmer", "visibility": "unseen",
+      "reason": "Measured loudness only 0.36, centroid 2592 Hz, 0.43s. Real, but quiet and ambiguous. Below the density threshold — not every sound earns a caption."
+    }
+  ],
+  "notCaptioned": {
+    "speech": "The shaman speaks from roughly 12.2s and Sintel from roughly 14s and 23s. Speech is Whisper's job, transcribed verbatim in the browser, and is deliberately not invented here."
+  }
+}

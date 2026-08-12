@@ -1,0 +1,25 @@
+.DS_Store
+Thumbs.db
+node_modules/
+dist/
+.vscode/
+.idea/
+*.log
+
+# Secrets — never commit. .env.example is the safe template that IS committed.
+.env
+.env.local
+.env.*.local
+.vercel
+
+# Local video files — keep the repo light, and never commit copyrighted footage
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4v
+
+# Exception: the Creative Commons clip the demo runs on.
+# Must be committed for GitHub Pages to have anything to play.
+# Only ever put openly licensed footage here.
+!clip.mp4

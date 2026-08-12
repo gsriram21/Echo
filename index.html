@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo — captions that carry sound</title>
+<style>
+  :root {
+    --bg: #0C0C0B;
+    --panel: #161613;
+    --panel-2: #1D1D19;
+    --line: #2A2A25;
+    --line-2: #3B3B33;
+    --fg: #EDEBE4;
+    --fg-dim: #948F85;
+    --fg-faint: #66635C;
+    --accent: #E0A94A;
+    --ink-1: #F4F1E8;
+    --ink-2: #E4E0D4;
+    --ink-3: #B3ADA0;
+    --ink-4: #8C877C;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    font-size: 14px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 26px 22px 72px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; flex-wrap: wrap; }
+  h1 { font-size: 19px; font-weight: 500; margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--fg-dim); font-weight: 400; margin-left: 10px; font-size: 13px; }
+
+  .modeToggle { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .modeToggle button {
+    background: none; border: 0; color: var(--fg-dim); font: inherit; font-size: 13px;
+    padding: 7px 20px; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s;
+  }
+  .modeToggle button[aria-pressed="true"] { background: var(--fg); color: #14140F; }
+
+  .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+  .stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #capLayer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+
+  .cue { position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; will-change: transform, opacity; transform-origin: center center; }
+  .plate {
+    display: inline-flex; align-items: baseline; gap: 7px; white-space: nowrap;
+    background: none; padding: 0;
+  }
+  .plate .word {
+    display: block; line-height: 1.2;
+    paint-order: stroke fill;
+  }
+  .plate .chev { font-size: .68em; opacity: .5; line-height: 1; font-weight: 400; }
+  .cue .bar { height: 1.5px; margin-top: 7px; opacity: .8; }
+  .cue.sel .plate { outline: 1px dashed var(--accent); outline-offset: 6px; }
+
+  #edgeL, #edgeR { position: absolute; top: 0; bottom: 0; width: 22%; pointer-events: none; opacity: 0; transition: opacity .18s; }
+  #edgeL { left: 0; background: linear-gradient(90deg, rgba(244,241,232,.10), transparent); }
+  #edgeR { right: 0; background: linear-gradient(270deg, rgba(244,241,232,.10), transparent); }
+
+  #stdLayer { position: absolute; left: 0; right: 0; bottom: 6%; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+  #stdLayer .std { background: #000; color: #fff; font-size: 17px; line-height: 1.35; padding: 4px 12px; max-width: 80%; text-align: center; }
+
+  .bigPlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.4); border: 0; cursor: pointer; color: #fff; font: inherit; font-size: 15px; }
+  .bigPlay span { border: 1px solid rgba(255,255,255,.55); border-radius: 999px; padding: 11px 30px; }
+  #vStatus { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 16px; background: rgba(0,0,0,.88); color: var(--fg); font-size: 13px; line-height: 1.6; display: none; border-top: 1px solid rgba(224,169,74,.5); }
+  #vStatus.show { display: block; }
+  #vStatus b { font-weight: 500; color: var(--accent); }
+  #vStatus a { color: var(--accent); }
+
+
+  .controls { margin-top: 14px; display: flex; align-items: center; gap: 14px; }
+  .ctlBtn { background: var(--panel); border: 1px solid var(--line); color: var(--fg); font: inherit; width: 42px; height: 38px; border-radius: var(--radius); cursor: pointer; }
+  .ctlBtn:hover { border-color: var(--line-2); }
+  .time { font-variant-numeric: tabular-nums; color: var(--fg-dim); font-size: 12px; min-width: 88px; }
+  .tracks { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+  .scrub { position: relative; height: 5px; background: var(--panel-2); border-radius: 3px; cursor: pointer; }
+  .scrub .played { position: absolute; left: 0; top: 0; bottom: 0; background: var(--fg-dim); border-radius: 3px; width: 0; }
+  .scrub .head { position: absolute; top: -4px; width: 3px; height: 13px; background: var(--fg); border-radius: 2px; left: 0; margin-left: -1px; }
+  .soundTrack { position: relative; height: 32px; background: var(--panel-2); border-radius: 4px; cursor: pointer; overflow: hidden; }
+  .soundTrack .mk { position: absolute; bottom: 0; border-radius: 2px 2px 0 0; opacity: .5; }
+  .soundTrack .mk.on { opacity: 1 !important; background: #E4E0D4 !important; }
+  .soundTrack .nowLine { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--fg); opacity: .85; }
+  .trackLabel { font-size: 11px; color: var(--fg-faint); }
+
+  .panels { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; margin-top: 24px; }
+  @media (max-width: 820px) { .panels { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .panel h2 { font-size: 12px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-faint); margin: 0 0 12px; }
+  .why .w { font-size: 18px; color: var(--fg); }
+  .why .note { color: var(--fg-dim); font-size: 13px; margin: 10px 0 14px; }
+  .kv { display: flex; flex-wrap: wrap; gap: 6px; }
+  .kv span { font-size: 11px; border: 1px solid var(--line-2); color: var(--fg-dim); padding: 3px 8px; border-radius: 999px; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row label { color: var(--fg-dim); font-size: 13px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .seg button { background: none; border: 0; color: var(--fg-dim); font: inherit; font-size: 12px; padding: 6px 12px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--fg); }
+  .sw { position: relative; width: 38px; height: 21px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--fg-dim); transition: left .15s, background .15s; }
+  .sw[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+  .sw[aria-pressed="true"]::after { left: 19px; background: #1A1A15; }
+
+  details.author { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 0 18px; }
+  details.author summary { cursor: pointer; padding: 14px 0; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-faint); list-style: none; }
+  details.author summary::-webkit-details-marker { display: none; }
+  details.author[open] summary { border-bottom: 1px solid var(--line); }
+  .authBody { padding: 16px 0 20px; display: grid; grid-template-columns: 250px 1fr; gap: 20px; }
+  @media (max-width: 820px) { .authBody { grid-template-columns: 1fr; } }
+  .cueList { max-height: 340px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+  .cueList .item { padding: 7px 11px; font-size: 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--line); }
+  .cueList .item:last-child { border-bottom: 0; }
+  .cueList .item:hover { background: var(--panel-2); }
+  .cueList .item.sel { background: var(--panel-2); color: var(--accent); }
+  .cueList .item .t { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+  .fields { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; align-content: start; }
+  .fields .f { display: flex; flex-direction: column; gap: 4px; }
+  .fields .f.wide { grid-column: 1 / -1; }
+  .fields label { font-size: 11px; color: var(--fg-faint); }
+  .fields input, .fields select, .fields textarea { background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); border-radius: 6px; padding: 6px 9px; font: inherit; font-size: 13px; }
+  .fields textarea { resize: vertical; min-height: 54px; }
+  .authBtns { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .authBtns button, .fileBtn { background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); font: inherit; font-size: 12px; padding: 8px 14px; border-radius: var(--radius); cursor: pointer; }
+  .authBtns button:hover, .fileBtn:hover { border-color: var(--line-2); }
+  .hint { color: var(--fg-faint); font-size: 12px; margin-top: 10px; }
+  .setup { margin-top: 20px; background: var(--panel); border: 1px solid var(--line); border-left: 2px solid var(--accent); border-radius: 0 12px 12px 0; padding: 16px 20px; }
+  .setup h3 { font-size: 13px; font-weight: 500; margin: 0 0 8px; color: var(--fg); }
+  .setup p, .setup li { color: var(--fg-dim); font-size: 13px; margin: 6px 0; }
+  .setup a { color: var(--accent); }
+  .setup code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Echo <span>captions that carry sound, not just words</span></h1>
+  <div class="modeToggle" role="group" aria-label="Caption mode">
+    <button id="mStd" aria-pressed="false">Standard</button>
+    <button id="mEcho" aria-pressed="true">Echo</button>
+  </div>
+</header>
+
+<div class="stage" id="stage">
+  <video id="v" playsinline preload="metadata"></video>
+  <div id="edgeL"></div><div id="edgeR"></div>
+  <div id="capLayer"></div>
+  <div id="stdLayer"></div>
+  <button class="bigPlay" id="bigPlay"><span>Play</span></button>
+  <div id="vStatus"></div>
+</div>
+
+<div class="controls">
+  <button class="ctlBtn" id="pp" aria-label="Play or pause">&#9654;</button>
+  <div class="time" id="time">0:00 / 0:00</div>
+  <div class="tracks">
+    <div class="scrub" id="scrub"><div class="played" id="played"></div><div class="head" id="head"></div></div>
+    <div class="soundTrack" id="soundTrack"><div class="nowLine" id="nowLine"></div></div>
+    <div class="trackLabel">Sound layer &mdash; height is loudness, width is duration</div>
+  </div>
+</div>
+
+<div class="panels">
+  <div class="panel why">
+    <h2>Why it looks like that</h2>
+    <div id="whyBody"><div class="note">Tap any caption on the video to see the sound it represents and the reasoning behind its treatment.</div></div>
+  </div>
+  <div class="panel">
+    <h2>Settings</h2>
+    <div class="row"><label>Intensity</label>
+      <div class="seg" id="segIntensity"><button data-v="0.75">Subtle</button><button data-v="1" aria-pressed="true">Medium</button><button data-v="1.3">Full</button></div>
+    </div>
+    <div class="row"><label>Occlusion</label>
+      <div class="seg" id="segOcclusion"><button data-v="low">Low</button><button data-v="mid" aria-pressed="true">Mid</button><button data-v="free">Free</button></div>
+    </div>
+    <div class="row"><label>Reduce motion</label><button class="sw" id="swMotion" aria-pressed="false" aria-label="Reduce motion"></button></div>
+    <div class="row"><label>Show speech</label><button class="sw" id="swDialogue" aria-pressed="true" aria-label="Show speech"></button></div>
+  </div>
+</div>
+
+<details class="author">
+  <summary>Author mode &mdash; retime and edit cues</summary>
+  <div class="authBody">
+    <div>
+      <div class="cueList" id="cueList"></div>
+      <div class="hint">Click a cue to jump to it. With author mode open, clicking the video places the selected cue.</div>
+    </div>
+    <div class="fields" id="fields">
+      <div class="f wide"><label>Text</label><input id="fText" type="text"></div>
+      <div class="f"><label>Start (s)</label><input id="fStart" type="number" step="0.05"></div>
+      <div class="f"><label>End (s)</label><input id="fEnd" type="number" step="0.05"></div>
+      <div class="f"><label>Kind</label><select id="fKind"><option>dialogue</option><option>music</option><option>effect</option><option>ambient</option></select></div>
+      <div class="f"><label>Behavior</label><select id="fBehavior"><option>punch</option><option>sustain</option><option>approach</option><option>recede</option><option>pulse</option></select></div>
+      <div class="f"><label>X (0&ndash;1)</label><input id="fX" type="number" step="0.01" min="0" max="1"></div>
+      <div class="f"><label>Y (0&ndash;1)</label><input id="fY" type="number" step="0.01" min="0" max="1"></div>
+      <div class="f"><label>Off screen</label><select id="fOff"><option>none</option><option>left</option><option>right</option></select></div>
+      <div class="f"><label>Texture</label><select id="fTexture"><option>clean</option><option>muffled</option><option>harsh</option></select></div>
+      <div class="f wide"><label>Loudness</label><input id="fIntensity" type="range" min="0" max="1" step="0.05"></div>
+      <div class="f wide"><label>Note &mdash; the reasoning shown when tapped</label><textarea id="fNote"></textarea></div>
+      <div class="authBtns">
+        <button id="bAdd">Add cue at playhead</button>
+        <button id="bSetStart">Set start to playhead</button>
+        <button id="bSetEnd">Set end to playhead</button>
+        <button id="bDup">Duplicate</button>
+        <button id="bDel">Delete</button>
+        <button id="bExport">Export JSON</button>
+        <label class="fileBtn">Import JSON<input type="file" id="fImport" accept="application/json" style="display:none"></label>
+      </div>
+    </div>
+  </div>
+</details>
+
+<div class="setup" id="analyseBox">
+  <h3>Generate the caption layer from the film</h3>
+  <p>This reads the actual audio and writes the cues itself &mdash; onsets, loudness, duration, stereo position, and sound type. Nothing is hardcoded to one clip. Point it at any film and it produces a caption layer for that film.</p>
+  <p style="margin-top:12px">
+    <label class="fileBtn">Analyse a film<input type="file" id="anFile" accept="video/*,audio/*" style="display:none"></label>
+    <button class="fileBtn" id="bLabel" style="margin-left:8px" disabled>Name the sounds</button>
+    <span style="margin-left:12px; font-size:12px; color:var(--fg-faint)">Pick <b>clip.mp4</b> &mdash; it loads the video and generates cues in one step.</span>
+  </p>
+  <div id="anProgress" style="display:none; margin-top:12px; font-size:13px; color:var(--fg-dim)"></div>
+  <div id="anResult" style="display:none; margin-top:12px"></div>
+  <div class="row" style="margin-top:14px; border-top:1px solid var(--line); padding-top:14px">
+    <label>Density &mdash; how many sounds earn a caption</label>
+    <div class="seg" id="segDensity">
+      <button data-v="12">Sparse</button>
+      <button data-v="24" aria-pressed="true">Balanced</button>
+      <button data-v="48">Dense</button>
+    </div>
+  </div>
+</div>
+
+<div class="setup">
+  <h3>Set up the film (one minute, once)</h3>
+  <p>Your network blocked streaming the clip, so load it from disk instead. Download one of these &mdash; both are Creative Commons Attribution, free to use and modify:</p>
+  <p>
+    <a href="https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4">Sintel trailer</a> (52s, dramatic, recommended &mdash; the shipped cues are written for it)
+    &nbsp;&middot;&nbsp;
+    <a href="https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4">Big Buck Bunny</a> (colourful, lots of sound)
+  </p>
+  <p>Save it next to <code>index.html</code>, rename it to <code>clip.mp4</code>, and refresh. The page looks for that file first &mdash; no network needed after that.</p>
+  <p>Or click <b>Load a local video file</b> below and pick any video already on your machine.</p>
+  <p style="margin-top:12px"><label class="fileBtn">Load a local video file<input type="file" id="vFile" accept="video/*" style="display:none"></label></p>
+</div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var CUES = [
+    { id:"c1", start:0.5, end:7.0, text:"wind over snow", kind:"ambient", x:0.5, y:0.16, offscreen:"none", behavior:"sustain", intensity:0.28, texture:"clean",
+      note:"Standard captions flash [wind] once or drop it entirely. It runs for seven seconds under everything else, so it is held open for seven seconds at low weight — present, not shouting." },
+    { id:"c2", start:2.2, end:2.7, text:"footstep", kind:"effect", x:0.42, y:0.84, offscreen:"none", behavior:"punch", intensity:0.35, texture:"clean",
+      note:"A single footfall. Short, tight, placed at ground level where the foot is. No stretch, because the sound does not last." },
+    { id:"c3", start:3.2, end:3.7, text:"footstep", kind:"effect", x:0.47, y:0.86, offscreen:"none", behavior:"punch", intensity:0.38, texture:"clean",
+      note:"Repeating it in a slightly different place reads as walking. Rhythm through repetition and position, rather than the flat word 'footsteps'." },
+    { id:"c4", start:5.5, end:13.0, text:"low strings", kind:"music", x:0.5, y:0.93, offscreen:"none", behavior:"sustain", intensity:0.45, texture:"clean",
+      note:"Score is not inside the world of the film, so it sits low at the frame edge — underneath the scene rather than in it. Held for its real length." },
+    { id:"c5", start:8.0, end:8.9, text:"she breathes", kind:"effect", x:0.5, y:0.58, offscreen:"none", behavior:"punch", intensity:0.25, texture:"muffled",
+      note:"Close and soft. Muffled texture — blurred, lower contrast — reads as intimate rather than distant." },
+    { id:"c6", start:10.5, end:12.0, text:"a cry, far off", kind:"effect", x:0.9, y:0.26, offscreen:"right", behavior:"approach", intensity:0.5, texture:"harsh",
+      note:"First sign of the dragon, and it is off screen. The arrow marks the direction it comes from, and it grows because it is getting closer." },
+    { id:"c7", start:13.5, end:18.0, text:"wings", kind:"effect", x:0.66, y:0.34, offscreen:"none", behavior:"approach", intensity:0.7, texture:"clean",
+      note:"This is the Jaws problem. A hearing viewer knows something is arriving before the picture shows it. Four seconds of growth carries the arrival." },
+    { id:"c8", start:15.0, end:22.5, text:"strings climbing", kind:"music", x:0.5, y:0.93, offscreen:"none", behavior:"approach", intensity:0.6, texture:"clean",
+      note:"The score rising is the structure of the scene. A single caption reading [dramatic music] throws that away completely." },
+    { id:"c9", start:19.0, end:19.4, text:"impact", kind:"effect", x:0.35, y:0.5, offscreen:"none", behavior:"punch", intensity:0.85, texture:"harsh",
+      note:"Loud and violent. Large, heavy, fractured edges. It covers part of the frame, and that is the right trade for a sound this important." },
+    { id:"c10", start:20.4, end:20.8, text:"steel on steel", kind:"effect", x:0.6, y:0.46, offscreen:"none", behavior:"punch", intensity:0.7, texture:"clean",
+      note:"Sword contact. Sharp, clean edge, placed where the blades meet." },
+    { id:"c11", start:21.8, end:22.2, text:"steel on steel", kind:"effect", x:0.42, y:0.54, offscreen:"none", behavior:"punch", intensity:0.72, texture:"clean",
+      note:"Second strike, moved across the frame. Position carries the choreography of the fight." },
+    { id:"c12", start:23.5, end:25.8, text:"roar", kind:"effect", x:0.5, y:0.4, offscreen:"none", behavior:"approach", intensity:0.98, texture:"harsh",
+      note:"The loudest sound in the clip. Maximum size and weight, harsh texture. Everything else is calibrated so this can be the ceiling." },
+    { id:"c13", start:26.2, end:29.5, text:"fire", kind:"effect", x:0.62, y:0.62, offscreen:"none", behavior:"sustain", intensity:0.75, texture:"harsh",
+      note:"Sustained and violent. Opens across its duration so you feel it continue instead of reading a single flash." },
+    { id:"c14", start:27.5, end:34.5, text:"drums", kind:"music", x:0.5, y:0.95, offscreen:"none", behavior:"pulse", intensity:0.7, texture:"clean",
+      note:"Rhythmic sound gets the pulse behavior — scale moving on the beat. Tempo is information captions normally discard." },
+    { id:"c15", start:30.8, end:32.2, text:"Scales!", kind:"dialogue", x:0.36, y:0.46, offscreen:"none", behavior:"punch", intensity:0.8, texture:"clean",
+      note:"Speech still reads as speech, in white, but placed at the speaker. Who is talking stops being a guess." },
+    { id:"c16", start:33.4, end:35.0, text:"someone running", kind:"effect", x:0.08, y:0.72, offscreen:"left", behavior:"approach", intensity:0.5, texture:"clean",
+      note:"Arriving from the left, out of frame. The arrow says which way to look before the picture gets there." },
+    { id:"c17", start:35.5, end:43.5, text:"full orchestra", kind:"music", x:0.5, y:0.95, offscreen:"none", behavior:"sustain", intensity:0.85, texture:"clean",
+      note:"Eight seconds of score. Standard captions give two seconds of [epic music] and then nothing, leaving a Deaf viewer in silence through the climax." },
+    { id:"c18", start:38.6, end:39.1, text:"crash", kind:"effect", x:0.7, y:0.56, offscreen:"none", behavior:"punch", intensity:0.9, texture:"harsh",
+      note:"Punches through the sustained score. Two sounds coexisting is ordinary for a hearing viewer and impossible on a single caption line." },
+    { id:"c19", start:44.0, end:47.5, text:"strings falling", kind:"music", x:0.5, y:0.93, offscreen:"none", behavior:"recede", intensity:0.55, texture:"clean",
+      note:"Recede — shrinking and fading across its duration. The release after a climax is as structural as the build." },
+    { id:"c20", start:48.0, end:51.8, text:"wind again", kind:"ambient", x:0.5, y:0.18, offscreen:"none", behavior:"sustain", intensity:0.25, texture:"clean",
+      note:"Returns to where it began. The bookend is a deliberate authorial choice, and today's captions have no way to express it." }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var video = $("v"), stage = $("stage"), capLayer = $("capLayer"), stdLayer = $("stdLayer");
+  var scrub = $("scrub"), played = $("played"), head = $("head");
+  var soundTrack = $("soundTrack"), nowLine = $("nowLine"), timeEl = $("time");
+  var state = { mode:"echo", intensity:1, occlusion:"mid", reduceMotion:false, showDialogue:true, selected:null, authoring:false };
+  var nodes = {};
+
+  function clamp(v,a,b){ return v<a?a:v>b?b:v; }
+  function fmt(s){ if(!isFinite(s)) return "0:00"; var m=Math.floor(s/60),r=Math.floor(s%60); return m+":"+(r<10?"0":"")+r; }
+  function kindColor(k){ return k==="dialogue"?"#FFFFFF":k==="effect"?"#F7F4EC":k==="music"?"#E6E1D5":"#D3CDC0"; }
+  function duration(){ return video.duration && isFinite(video.duration) ? video.duration : 52; }
+
+  function buildSoundTrack(){
+    Array.prototype.slice.call(soundTrack.querySelectorAll(".mk")).forEach(function(n){ n.remove(); });
+    var dur = duration();
+    CUES.forEach(function(c){
+      var el=document.createElement("div");
+      el.className="mk"; el.dataset.id=c.id;
+      el.style.left=(c.start/dur*100)+"%";
+      el.style.width=Math.max(0.4,(c.end-c.start)/dur*100)+"%";
+      el.style.height=(20+c.intensity*68)+"%";
+      el.style.background="#8C877C";
+      el.style.opacity=String(0.28+c.intensity*0.45);
+      el.title=c.text;
+      soundTrack.appendChild(el);
+    });
+  }
+
+  function ensureNode(c){
+    if(nodes[c.id] && nodes[c.id].isConnected) return nodes[c.id];
+    var el=document.createElement("div");
+    el.className="cue";
+    el.innerHTML='<div class="plate"><span class="chev"></span><span class="word"></span></div><div class="bar"></div>';
+    el.addEventListener("click", function(e){ e.stopPropagation(); select(c.id); });
+    capLayer.appendChild(el);
+    nodes[c.id]=el;
+    return el;
+  }
+
+  function styleCue(c,p,t){
+    var el=ensureNode(c), plate=el.querySelector(".plate"), word=el.querySelector(".word"), chev=el.querySelector(".chev"), bar=el.querySelector(".bar");
+    var col=kindColor(c.kind);
+    if(word.textContent!==c.text) word.textContent=c.text;
+
+    var arrow = c.offscreen==="left" ? "\u2039" : c.offscreen==="right" ? "\u203a" : "";
+    if(chev.textContent!==arrow) chev.textContent=arrow;
+    chev.style.display = arrow ? "block" : "none";
+    chev.style.color = col;
+
+    var im=state.intensity;
+    var size=(18+c.intensity*19)*im;
+    var scale=1, opacity=1, ls=0, barW=0, barClip="";
+
+    if(state.reduceMotion){
+      opacity=0.75+c.intensity*0.25;
+      ls = c.behavior==="sustain" ? 0.24 : 0;
+      barW = c.behavior==="punch" ? 0 : 100;
+      if(c.behavior==="approach") barClip="polygon(0 38%, 100% 0, 100% 100%, 0 62%)";
+      if(c.behavior==="recede")  barClip="polygon(0 0, 100% 38%, 100% 62%, 0 100%)";
+    } else {
+      switch(c.behavior){
+        case "punch":
+          scale=1+0.16*(1-Math.min(1,p/0.3));
+          opacity = p<0.1 ? p/0.1 : (p>0.7 ? Math.max(0,(1-p)/0.3) : 1);
+          barW=0; break;
+        case "sustain":
+          ls=0.3*p;
+          opacity = p<0.08 ? p/0.08 : (p>0.9 ? 0.58+(1-p)/0.1*0.32 : 0.86+0.14*(1-p));
+          barW=p*100; break;
+        case "approach":
+          scale=0.72+0.52*p; opacity=0.52+0.48*p; barW=p*100;
+          barClip="polygon(0 38%, 100% 0, 100% 100%, 0 62%)"; break;
+        case "recede":
+          scale=1.24-0.46*p; opacity=1-0.42*p; barW=(1-p)*100;
+          barClip="polygon(0 0, 100% 38%, 100% 62%, 0 100%)"; break;
+        case "pulse":
+          scale=1+0.09*Math.abs(Math.sin(t*Math.PI*2));
+          opacity = p<0.08 ? p/0.08 : (p>0.9 ? (1-p)/0.1 : 1);
+          barW=100; break;
+      }
+    }
+
+    word.style.color=col;
+    word.style.fontSize=size.toFixed(1)+"px";
+    word.style.webkitTextStroke=(size*0.13).toFixed(2)+"px rgba(0,0,0,0.58)";
+    word.style.fontWeight = c.intensity>0.62 ? 500 : 400;
+    word.style.letterSpacing=ls.toFixed(3)+"em";
+    word.style.paddingRight = ls>0 ? ls.toFixed(3)+"em" : "0";
+
+    if(c.texture==="muffled"){ plate.style.filter="blur(1.5px)"; opacity*=0.82; }
+    else plate.style.filter="";
+    if(c.texture==="harsh"){
+      word.style.textShadow="1.2px 0 rgba(244,241,232,.5), -1.2px 0 rgba(244,241,232,.32), 0 1px 6px rgba(0,0,0,.6)";
+    } else {
+      word.style.textShadow="0 1px 6px rgba(0,0,0,.55)";
+    }
+
+    bar.style.width=barW.toFixed(1)+"%";
+    bar.style.display = barW>0 ? "block" : "none";
+    bar.style.clipPath=barClip;
+    bar.style.background=col;
+
+    el.style.opacity=clamp(opacity,0,1).toFixed(3);
+    el.style.transform="scale("+scale.toFixed(3)+")";
+    el.classList.toggle("sel", state.selected===c.id);
+    el.style.display="block";
+
+    var sw=capLayer.clientWidth, sh=capLayer.clientHeight;
+    var ew=el.offsetWidth||120, eh=el.offsetHeight||30;
+    var pad=Math.max(10, sw*0.02);
+    var yMin = state.occlusion==="low" ? 0.62 : state.occlusion==="mid" ? 0.06 : 0.02;
+    var yMax = 0.97;
+
+    var cxp = c.offscreen==="left" ? 0 : c.offscreen==="right" ? 1 : c.x;
+    var left = cxp*sw - ew/2;
+    var top  = clamp(c.y, yMin, yMax)*sh - eh/2;
+    left = clamp(left, pad, Math.max(pad, sw-ew-pad));
+    top  = clamp(top,  pad, Math.max(pad, sh-eh-pad));
+    el.style.left=left.toFixed(1)+"px";
+    el.style.top=top.toFixed(1)+"px";
+
+    if(c.offscreen==="left"){ $("edgeL").style.opacity=String(0.55*opacity); }
+    if(c.offscreen==="right"){ $("edgeR").style.opacity=String(0.55*opacity); }
+  }
+
+  function renderStandard(active){
+    stdLayer.innerHTML="";
+    active.slice(-2).forEach(function(c){
+      var d=document.createElement("div");
+      d.className="std";
+      d.textContent = c.kind==="dialogue" ? c.text : "["+c.text+"]";
+      stdLayer.appendChild(d);
+    });
+  }
+
+  function tick(){
+    var t=video.currentTime||0, dur=duration(), active=[];
+    $("edgeL").style.opacity="0"; $("edgeR").style.opacity="0";
+
+    CUES.forEach(function(c){
+      var vis = c.kind!=="dialogue" || state.showDialogue;
+      var on = t>=c.start && t<=c.end && vis;
+      if(on) active.push(c);
+      var el=nodes[c.id];
+      if(state.mode==="echo" && on){
+        styleCue(c, clamp((t-c.start)/Math.max(0.05,c.end-c.start),0,1), t);
+      } else if(el){ el.style.display="none"; }
+      var mk=soundTrack.querySelector('.mk[data-id="'+c.id+'"]');
+      if(mk) mk.classList.toggle("on", on);
+    });
+
+    if(state.mode==="standard") renderStandard(active); else stdLayer.innerHTML="";
+
+    var pct=dur?(t/dur*100):0;
+    played.style.width=pct+"%"; head.style.left=pct+"%"; nowLine.style.left=pct+"%";
+    timeEl.textContent=fmt(t)+" / "+fmt(dur);
+    requestAnimationFrame(tick);
+  }
+
+  function select(id){
+    state.selected=id;
+    var c=CUES.filter(function(x){return x.id===id;})[0];
+    if(!c) return;
+    $("whyBody").innerHTML='<div class="w" style="color:'+kindColor(c.kind)+'">'+c.text+'</div>'+
+      '<div class="note">'+c.note+'</div><div class="kv"><span>'+c.kind+'</span><span>'+c.behavior+'</span><span>'+c.texture+
+      '</span><span>loudness '+Math.round(c.intensity*100)+'</span><span>'+(c.end-c.start).toFixed(1)+'s</span>'+
+      (c.offscreen!=="none"?'<span>off screen '+c.offscreen+'</span>':'')+'</div>';
+    renderCueList(); fillFields(c);
+  }
+
+  function setMode(m){
+    state.mode=m;
+    $("mStd").setAttribute("aria-pressed", m==="standard");
+    $("mEcho").setAttribute("aria-pressed", m==="echo");
+    if(m==="standard") Object.keys(nodes).forEach(function(k){ if(nodes[k]) nodes[k].style.display="none"; });
+    else stdLayer.innerHTML="";
+  }
+  $("mStd").addEventListener("click", function(){ setMode("standard"); });
+  $("mEcho").addEventListener("click", function(){ setMode("echo"); });
+
+  function segHandler(el,fn){
+    el.addEventListener("click", function(e){
+      var b=e.target.closest("button"); if(!b) return;
+      Array.prototype.slice.call(el.querySelectorAll("button")).forEach(function(x){ x.setAttribute("aria-pressed", x===b); });
+      fn(b.dataset.v);
+    });
+  }
+  segHandler($("segIntensity"), function(v){ state.intensity=parseFloat(v); });
+  segHandler($("segOcclusion"), function(v){ state.occlusion=v; });
+  function swHandler(el,fn){ el.addEventListener("click", function(){ var on=el.getAttribute("aria-pressed")!=="true"; el.setAttribute("aria-pressed",on); fn(on); }); }
+  swHandler($("swMotion"), function(on){ state.reduceMotion=on; });
+  swHandler($("swDialogue"), function(on){ state.showDialogue=on; });
+
+  var SOURCES=["clip.mp4","https://download.blender.org/durian/trailer/sintel_trailer-720p.mp4","https://media.w3.org/2010/05/sintel/trailer.mp4"];
+  var srcIndex=-1, usingLocal=false;
+  function status(html,show){ var el=$("vStatus"); el.innerHTML=html||""; el.classList.toggle("show",!!show); }
+  function tryNextSource(){
+    if(usingLocal) return;
+    srcIndex++;
+    if(srcIndex>=SOURCES.length){
+      status('<b>No film loaded.</b> Scroll down to &ldquo;Set up the film&rdquo; &mdash; download a clip, save it beside this file as <b>clip.mp4</b>, and refresh. Or load any video already on your machine.', true);
+      return;
+    }
+    video.src=SOURCES[srcIndex]; video.load();
+  }
+  video.addEventListener("error", function(){
+    if(usingLocal){ status('<b>That file could not be played.</b> Try an .mp4 &mdash; browsers do not support every format.', true); return; }
+    tryNextSource();
+  });
+  video.addEventListener("loadedmetadata", function(){ status("",false); buildSoundTrack(); });
+
+  function play(){
+    var p=video.play();
+    if(p&&p.catch) p.catch(function(err){ status('<b>Could not play.</b> '+(err&&err.message?err.message:String(err)), true); });
+  }
+  function togglePlay(){ if(video.paused) play(); else video.pause(); }
+  $("pp").addEventListener("click", togglePlay);
+  $("bigPlay").addEventListener("click", play);
+  video.addEventListener("play", function(){ $("pp").innerHTML="&#10073;&#10073;"; $("bigPlay").style.display="none"; status("",false); });
+  video.addEventListener("pause", function(){ $("pp").innerHTML="&#9654;"; });
+
+  function seekFromEvent(e,el){ var r=el.getBoundingClientRect(); video.currentTime=clamp((e.clientX-r.left)/r.width,0,1)*duration(); }
+  scrub.addEventListener("click", function(e){ seekFromEvent(e,scrub); });
+  soundTrack.addEventListener("click", function(e){
+    var mk=e.target.closest(".mk");
+    if(mk){ var c=CUES.filter(function(x){return x.id===mk.dataset.id;})[0]; if(c){ video.currentTime=c.start+0.05; select(c.id); return; } }
+    seekFromEvent(e,soundTrack);
+  });
+
+  stage.addEventListener("click", function(e){
+    if(!state.authoring||!state.selected) return;
+    if(e.target.closest(".cue")||e.target.closest("#bigPlay")) return;
+    var r=stage.getBoundingClientRect();
+    var c=CUES.filter(function(x){return x.id===state.selected;})[0]; if(!c) return;
+    c.x=+clamp((e.clientX-r.left)/r.width,0,1).toFixed(3);
+    c.y=+clamp((e.clientY-r.top)/r.height,0,1).toFixed(3);
+    c.offscreen="none"; fillFields(c);
+  });
+  document.querySelector("details.author").addEventListener("toggle", function(e){ state.authoring=e.target.open; });
+
+  function renderCueList(){
+    var list=$("cueList"); list.innerHTML="";
+    CUES.slice().sort(function(a,b){return a.start-b.start;}).forEach(function(c){
+      var d=document.createElement("div");
+      d.className="item"+(state.selected===c.id?" sel":"");
+      d.innerHTML='<span>'+c.text+'</span><span class="t">'+c.start.toFixed(1)+'&ndash;'+c.end.toFixed(1)+'</span>';
+      d.addEventListener("click", function(){ video.currentTime=c.start+0.05; select(c.id); });
+      list.appendChild(d);
+    });
+  }
+
+  var F={fText:"text",fStart:"start",fEnd:"end",fKind:"kind",fBehavior:"behavior",fX:"x",fY:"y",fOff:"offscreen",fTexture:"texture",fIntensity:"intensity",fNote:"note"};
+  function fillFields(c){ Object.keys(F).forEach(function(id){ $(id).value=c[F[id]]; }); }
+  Object.keys(F).forEach(function(id){
+    $(id).addEventListener("input", function(){
+      var c=CUES.filter(function(x){return x.id===state.selected;})[0]; if(!c) return;
+      var key=F[id], v=$(id).value;
+      c[key]=["start","end","x","y","intensity"].indexOf(key)>=0?parseFloat(v):v;
+      if(["start","end","intensity","kind"].indexOf(key)>=0) buildSoundTrack();
+      if(key==="text"||key==="start"||key==="end") renderCueList();
+    });
+  });
+
+  $("bAdd").addEventListener("click", function(){
+    var t=video.currentTime;
+    var c={id:"c"+Date.now(),start:+t.toFixed(2),end:+(t+1.5).toFixed(2),text:"new sound",kind:"effect",x:0.5,y:0.5,offscreen:"none",behavior:"punch",intensity:0.5,texture:"clean",note:""};
+    CUES.push(c); buildSoundTrack(); select(c.id);
+  });
+  $("bSetStart").addEventListener("click", function(){ var c=CUES.filter(function(x){return x.id===state.selected;})[0]; if(!c)return; c.start=+video.currentTime.toFixed(2); fillFields(c); buildSoundTrack(); renderCueList(); });
+  $("bSetEnd").addEventListener("click", function(){ var c=CUES.filter(function(x){return x.id===state.selected;})[0]; if(!c)return; c.end=+video.currentTime.toFixed(2); fillFields(c); buildSoundTrack(); renderCueList(); });
+  $("bDup").addEventListener("click", function(){
+    var c=CUES.filter(function(x){return x.id===state.selected;})[0]; if(!c)return;
+    var n=JSON.parse(JSON.stringify(c)); n.id="c"+Date.now(); n.start=+video.currentTime.toFixed(2); n.end=n.start+(c.end-c.start);
+    CUES.push(n); buildSoundTrack(); select(n.id);
+  });
+  $("bDel").addEventListener("click", function(){
+    var i=CUES.findIndex(function(x){return x.id===state.selected;}); if(i<0)return;
+    if(nodes[CUES[i].id]){ nodes[CUES[i].id].remove(); delete nodes[CUES[i].id]; }
+    CUES.splice(i,1); state.selected=null; buildSoundTrack(); renderCueList();
+  });
+  $("bExport").addEventListener("click", function(){
+    var a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(CUES,null,2)],{type:"application/json"}));
+    a.download="echo-cues.json"; a.click();
+  });
+  $("fImport").addEventListener("change", function(e){
+    var f=e.target.files[0]; if(!f) return;
+    var r=new FileReader();
+    r.onload=function(){
+      try{ var arr=JSON.parse(r.result); capLayer.innerHTML=""; nodes={}; CUES.length=0; arr.forEach(function(c){CUES.push(c);}); buildSoundTrack(); renderCueList(); state.selected=null; }
+      catch(err){ alert("Could not read that file: "+err.message); }
+    };
+    r.readAsText(f);
+  });
+  $("vFile").addEventListener("change", function(e){
+    var f=e.target.files[0]; if(!f) return;
+    usingLocal=true; status("",false);
+    video.src=URL.createObjectURL(f); video.load();
+    $("bigPlay").style.display="flex";
+  });
+
+  document.addEventListener("keydown", function(e){
+    if(/input|textarea|select/i.test(e.target.tagName)) return;
+    if(e.code==="Space"){ e.preventDefault(); togglePlay(); }
+    if(e.key==="ArrowLeft") video.currentTime=Math.max(0,video.currentTime-(e.shiftKey?1:0.1));
+    if(e.key==="ArrowRight") video.currentTime=Math.min(duration(),video.currentTime+(e.shiftKey?1:0.1));
+    if(e.key.toLowerCase()==="e") setMode(state.mode==="echo"?"standard":"echo");
+  });
+
+
+  // ---------- analysis pipeline: audio in, caption layer out ----------
+
+  function fft(re, im) {
+    var n = re.length, i, j = 0, k, m, t;
+    for (i = 1; i < n; i++) {
+      var bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) { t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+    }
+    for (m = 2; m <= n; m <<= 1) {
+      var ang = -2 * Math.PI / m, wr = Math.cos(ang), wi = Math.sin(ang);
+      for (i = 0; i < n; i += m) {
+        var cr = 1, ci = 0;
+        for (k = 0; k < m / 2; k++) {
+          var ur = re[i + k], ui = im[i + k];
+          var vr = re[i + k + m / 2] * cr - im[i + k + m / 2] * ci;
+          var vi = re[i + k + m / 2] * ci + im[i + k + m / 2] * cr;
+          re[i + k] = ur + vr; im[i + k] = ui + vi;
+          re[i + k + m / 2] = ur - vr; im[i + k + m / 2] = ui - vi;
+          var ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+        }
+      }
+    }
+  }
+
+  function analyseBuffer(buf, onStep) {
+    var sr = buf.sampleRate;
+    var L = buf.getChannelData(0);
+    var R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+    var N = 2048, HOP = 1024, nFrames = Math.floor((L.length - N) / HOP);
+    var win = new Float32Array(N);
+    for (var i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+
+    var rms = new Float32Array(nFrames), flux = new Float32Array(nFrames),
+        cent = new Float32Array(nFrames), bal = new Float32Array(nFrames),
+        lowE = new Float32Array(nFrames), midE = new Float32Array(nFrames), hiE = new Float32Array(nFrames);
+    var prevMag = new Float32Array(N / 2);
+    var re = new Float32Array(N), im = new Float32Array(N);
+    var binHz = sr / N;
+
+    for (var f = 0; f < nFrames; f++) {
+      var off = f * HOP, sl = 0, sr2 = 0;
+      for (var n2 = 0; n2 < N; n2++) {
+        var l = L[off + n2], r = R[off + n2];
+        sl += l * l; sr2 += r * r;
+        re[n2] = (l + r) * 0.5 * win[n2]; im[n2] = 0;
+      }
+      var rl = Math.sqrt(sl / N), rr = Math.sqrt(sr2 / N);
+      rms[f] = (rl + rr) * 0.5;
+      bal[f] = (rr - rl) / (rr + rl + 1e-9);
+
+      fft(re, im);
+      var fl = 0, cs = 0, cw = 0, lo = 0, mi = 0, hi = 0;
+      for (var b = 1; b < N / 2; b++) {
+        var mag = Math.sqrt(re[b] * re[b] + im[b] * im[b]);
+        var d = mag - prevMag[b]; if (d > 0) fl += d;
+        prevMag[b] = mag;
+        var hz = b * binHz;
+        cs += hz * mag; cw += mag;
+        if (hz < 250) lo += mag; else if (hz < 2200) mi += mag; else hi += mag;
+      }
+      flux[f] = fl; cent[f] = cw > 0 ? cs / cw : 0;
+      lowE[f] = lo; midE[f] = mi; hiE[f] = hi;
+      if (f % 300 === 0 && onStep) onStep(f / nFrames);
+    }
+
+    var tOf = function (f) { return f * HOP / sr; };
+    var peakRms = 0; for (var q = 0; q < nFrames; q++) if (rms[q] > peakRms) peakRms = rms[q];
+    var floor = peakRms * 0.055;
+
+    // smooth envelope for beds
+    var W = Math.max(2, Math.round(0.7 * sr / HOP));
+    var smooth = new Float32Array(nFrames), run = 0;
+    for (var a = 0; a < nFrames; a++) {
+      run += rms[a]; if (a >= W) run -= rms[a - W];
+      smooth[a] = run / Math.min(a + 1, W);
+    }
+
+    var cues = [], id = 0;
+
+    // 1. sustained beds — score and room tone
+    var inBed = false, bedStart = 0;
+    for (var c2 = 0; c2 < nFrames; c2++) {
+      var on = smooth[c2] > floor * 1.5;
+      if (on && !inBed) { inBed = true; bedStart = c2; }
+      else if ((!on || c2 === nFrames - 1) && inBed) {
+        inBed = false;
+        var dur = tOf(c2) - tOf(bedStart);
+        if (dur >= 3) {
+          var cAvg = 0, rAvg = 0, bAvg = 0, cnt = 0;
+          for (var z = bedStart; z < c2; z++) { cAvg += cent[z]; rAvg += rms[z]; bAvg += bal[z]; cnt++; }
+          cAvg /= cnt; rAvg /= cnt; bAvg /= cnt;
+          var isMusic = cAvg < 1700;
+          var body = bedStart + Math.round((c2 - bedStart) * 0.82);
+          var half = Math.floor((bedStart + body) / 2), e1 = 0, e2 = 0;
+          for (var y = bedStart; y < half; y++) e1 += rms[y];
+          for (var y2 = half; y2 < body; y2++) e2 += rms[y2];
+          var trend = (e2 / Math.max(1, body - half)) / ((e1 / Math.max(1, half - bedStart)) + 1e-9);
+          cues.push({
+            id: "a" + (id++), start: +tOf(bedStart).toFixed(2), end: +tOf(c2).toFixed(2),
+            text: (trend > 1.22 ? (isMusic ? "score rising" : "closing in") : trend < 0.8 ? (isMusic ? "score falling" : "moving away") : (isMusic ? "score" : "room tone")),
+            kind: isMusic ? "music" : "ambient",
+            x: +clamp(0.5 + bAvg * 0.42, 0.06, 0.94).toFixed(3),
+            y: isMusic ? 0.94 : 0.16,
+            offscreen: Math.abs(bAvg) > 0.5 ? (bAvg < 0 ? "left" : "right") : "none",
+            behavior: trend > 1.22 ? "approach" : trend < 0.8 ? "recede" : "sustain",
+            intensity: +Math.min(1, rAvg / peakRms * 1.7).toFixed(2), texture: "clean",
+            salience: dur * (rAvg / peakRms) * 0.9,
+            note: "Detected as a sustained bed lasting " + dur.toFixed(1) + "s, average spectral centroid " +
+                  Math.round(cAvg) + " Hz. Held open across its real length rather than flashed once."
+          });
+        }
+      }
+    }
+
+    // 2. transient events from spectral flux
+    var fMax = 0; for (var w = 0; w < nFrames; w++) if (flux[w] > fMax) fMax = flux[w];
+    var lastOnset = -99;
+    for (var o = 3; o < nFrames - 3; o++) {
+      if (flux[o] < fMax * 0.16) continue;
+      if (!(flux[o] > flux[o - 1] && flux[o] >= flux[o + 1])) continue;
+      if (tOf(o) - lastOnset < 0.22) continue;
+      var loc = 0; for (var m2 = Math.max(0, o - 20); m2 < Math.min(nFrames, o + 20); m2++) loc += flux[m2];
+      loc /= 40;
+      if (flux[o] < loc * 1.7) continue;
+      lastOnset = tOf(o);
+
+      var pk = rms[o], end = o;
+      for (var e = o; e < Math.min(nFrames, o + Math.round(6 * sr / HOP)); e++) {
+        if (rms[e] > pk) pk = rms[e];
+        if (rms[e] < pk * 0.32) { end = e; break; }
+        end = e;
+      }
+      var d2 = tOf(end) - tOf(o); if (d2 < 0.18) { end = o + Math.round(0.3 * sr / HOP); d2 = 0.3; }
+
+      var cs2 = 0, lo2 = 0, mi2 = 0, hi2 = 0, bl = 0, k2 = 0;
+      for (var v = o; v < Math.min(end, nFrames); v++) { cs2 += cent[v]; lo2 += lowE[v]; mi2 += midE[v]; hi2 += hiE[v]; bl += bal[v]; k2++; }
+      cs2 /= k2; bl /= k2;
+      var tot = lo2 + mi2 + hi2 + 1e-9, midRatio = mi2 / tot, hiRatio = hi2 / tot;
+
+      var kind = "effect", text = "hit";
+      if (midRatio > 0.55 && cs2 > 400 && cs2 < 2400 && d2 > 0.35) { kind = "dialogue"; text = "speech"; }
+      else if (cs2 < 500) text = "low thud";
+      else if (hiRatio > 0.42) text = "sharp hit";
+      else if (d2 > 1.6) text = "long sound";
+
+      var bodyEnd = o + Math.round((end - o) * 0.82), mid2 = Math.floor((o + bodyEnd) / 2);
+      var h1 = 0, h2 = 0;
+      for (var g = o; g < mid2; g++) h1 += rms[g];
+      for (var g2 = mid2; g2 < bodyEnd; g2++) h2 += rms[g2];
+      var tr = (h2 / Math.max(1, bodyEnd - mid2)) / ((h1 / Math.max(1, mid2 - o)) + 1e-9);
+      var behavior = d2 < 0.7 ? "punch" : tr > 1.2 ? "approach" : tr < 0.78 ? "recede" : "sustain";
+
+      var texture = cs2 < 700 ? "muffled" : hiRatio > 0.5 ? "harsh" : "clean";
+      var x = clamp(0.5 + bl * 0.42, 0.06, 0.94);
+      var offscreen = Math.abs(bl) > 0.55 ? (bl < 0 ? "left" : "right") : "none";
+
+      cues.push({
+        id: "a" + (id++), start: +tOf(o).toFixed(2), end: +tOf(end).toFixed(2),
+        text: text, kind: kind, x: +x.toFixed(3),
+        y: kind === "dialogue" ? 0.5 : 0.55, offscreen: offscreen, behavior: behavior,
+        intensity: +Math.min(1, pk / peakRms * 1.25).toFixed(2), texture: texture,
+        salience: (pk / peakRms) * (flux[o] / fMax) * 3,
+        note: "Detected at " + tOf(o).toFixed(2) + "s. Peak loudness " + Math.round(pk / peakRms * 100) +
+              ", centroid " + Math.round(cs2) + " Hz, stereo balance " + bl.toFixed(2) +
+              " (which is why it sits " + (offscreen !== "none" ? "off frame " + offscreen : "at x " + x.toFixed(2)) +
+              "). Duration " + d2.toFixed(2) + "s gave it the " + behavior + " behaviour."
+      });
+    }
+
+    cues.sort(function (p1, p2) { return p2.salience - p1.salience; });
+    return cues;
+  }
+
+  var allCues = null;
+  function applyDensity(n) {
+    if (!allCues) return;
+    var keep = allCues.slice(0, n).sort(function (a, b) { return a.start - b.start; });
+    capLayer.innerHTML = ""; nodes = {};
+    CUES.length = 0; keep.forEach(function (c) { CUES.push(c); });
+    buildSoundTrack(); renderCueList(); state.selected = null;
+    $("anResult").style.display = "block";
+    $("anResult").innerHTML = '<b style="color:var(--accent);font-weight:500">' + CUES.length + ' cues</b> ' +
+      'kept from ' + allCues.length + ' detected sounds. Restraint is a setting, not an accident &mdash; ' +
+      'the rest were real sounds that did not earn a caption.';
+  }
+  segHandler($("segDensity"), function (v) { applyDensity(parseInt(v, 10)); });
+
+  $("anFile").addEventListener("change", function (e) {
+    var f = e.target.files[0]; if (!f) return;
+    usingLocal = true; status("", false);
+    video.src = URL.createObjectURL(f); video.load();
+    $("bigPlay").style.display = "flex";
+    var prog = $("anProgress"); prog.style.display = "block"; prog.textContent = "Reading audio…";
+    f.arrayBuffer().then(function (ab) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      var ac = new AC();
+      prog.textContent = "Decoding audio…";
+      return ac.decodeAudioData(ab);
+    }).then(function (buf) {
+      lastBuffer = buf;
+      prog.textContent = "Analysing " + buf.duration.toFixed(1) + "s of audio…";
+      return new Promise(function (res) {
+        setTimeout(function () {
+          res(analyseBuffer(buf, function (p) { prog.textContent = "Analysing… " + Math.round(p * 100) + "%"; }));
+        }, 30);
+      });
+    }).then(function (cues) {
+      allCues = cues;
+      prog.textContent = "Found " + cues.length + " sounds. Press \u201cName the sounds\u201d to have a model identify them.";
+      $("bLabel").disabled = false;
+      var seg = $("segDensity").querySelector('[aria-pressed="true"]');
+      applyDensity(parseInt(seg ? seg.dataset.v : "24", 10));
+    }).catch(function (err) {
+      prog.textContent = "Could not analyse that file: " + (err && err.message ? err.message : err);
+    });
+  });
+
+
+  // ---------- naming stage: a model says what each sound is ----------
+
+  var lastBuffer = null;
+
+  var AUDIOSET_KIND = [
+    [/speech|conversation|narrat|monologue|shout|whisper|child speech|male speech|female speech/i, "dialogue"],
+    [/music|instrument|orchestra|violin|cello|piano|drum|guitar|brass|string|choir|singing|soundtrack/i, "music"],
+    [/\bwind\b|\brain\b|thunder|\bstream\b|ocean|waves|\bfire\b|crackle|ambient|silence|room tone|\broom\b|outside|rural|environmental|\bwater\b|rustl/i, "ambient"]
+  ];
+  function kindFromLabel(lbl) {
+    for (var i = 0; i < AUDIOSET_KIND.length; i++) if (AUDIOSET_KIND[i][0].test(lbl)) return AUDIOSET_KIND[i][1];
+    return "effect";
+  }
+  function shortLabel(lbl) {
+    var t = lbl.split(",")[0].trim().toLowerCase();
+    t = t.replace(/^(sounds? of|the) /, "");
+    if (t.split(" ").length > 3) t = t.split(" ").slice(0, 3).join(" ");
+    return t;
+  }
+
+  function sliceTo16k(buf, start, end) {
+    var sr = buf.sampleRate;
+    var i0 = Math.max(0, Math.floor(start * sr)), i1 = Math.min(buf.length, Math.ceil(end * sr));
+    var len = Math.max(1600, i1 - i0);
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    var off = new OAC(1, Math.ceil(len * 16000 / sr), 16000);
+    var tmp = off.createBuffer(1, len, sr);
+    var d = tmp.getChannelData(0), L = buf.getChannelData(0);
+    var R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+    for (var i = 0; i < len; i++) { var j = i0 + i; d[i] = j < buf.length ? (L[j] + R[j]) * 0.5 : 0; }
+    var src = off.createBufferSource(); src.buffer = tmp; src.connect(off.destination); src.start();
+    return off.startRendering().then(function (r) { return r.getChannelData(0); });
+  }
+
+  $("bLabel").addEventListener("click", function () {
+    if (!lastBuffer || !CUES.length) return;
+    var prog = $("anProgress"); prog.style.display = "block";
+    prog.textContent = "Loading the sound-recognition model (first run downloads it, then it is cached)…";
+    $("bLabel").disabled = true;
+
+    import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.1")
+      .then(function (T) {
+        return T.pipeline("audio-classification", "Xenova/ast-finetuned-audioset-10-10-0.4593", { dtype: "q8" });
+      })
+      .then(function (clf) {
+        var i = 0;
+        function step() {
+          if (i >= CUES.length) {
+            prog.textContent = "Named " + CUES.length + " sounds.";
+            buildSoundTrack(); renderCueList(); $("bLabel").disabled = false;
+            return;
+          }
+          var c = CUES[i];
+          prog.textContent = "Naming sound " + (i + 1) + " of " + CUES.length + "…";
+          sliceTo16k(lastBuffer, c.start, Math.min(c.end, c.start + 4))
+            .then(function (pcm) { return clf(pcm, { top_k: 3 }); })
+            .then(function (out) {
+              if (out && out.length) {
+                var best = out[0];
+                c.text = shortLabel(best.label);
+                c.kind = kindFromLabel(best.label);
+                if (c.kind === "music") c.y = 0.94;
+                c.note = "Named “" + best.label + "” with " + Math.round(best.score * 100) +
+                  "% confidence by an audio classifier trained on AudioSet. Alternatives: " +
+                  out.slice(1).map(function (o) { return o.label + " " + Math.round(o.score * 100) + "%"; }).join(", ") +
+                  ". Timing, loudness, position and behaviour all come from the waveform, not the model. " + (c.note || "");
+              }
+              i++; setTimeout(step, 0);
+            })
+            .catch(function () { i++; setTimeout(step, 0); });
+        }
+        step();
+      })
+      .catch(function (err) {
+        prog.textContent = "Could not load the model: " + (err && err.message ? err.message : err) +
+          " — the analysis labels stay as they are. Everything else still works.";
+        $("bLabel").disabled = false;
+      });
+  });
+
+  buildSoundTrack(); renderCueList(); setMode("echo"); tryNextSource();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
