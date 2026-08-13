@@ -618,9 +618,25 @@
       }
       buildSoundTrack(); renderCueList(); renderSuppressed();
       $("anResult").style.display = "block";
-      $("anResult").innerHTML = 'Loaded <b>' + CUES.length + ' cues</b> from the validated Sintel fixture ' +
-        '(<code>cues.sintel.json</code>). ' + SUPPRESSED.length + ' more sounds were detected but suppressed because the picture already showed them.';
-    }).catch(function(){ /* silent — the demo still works with the detected cues */ });
+      $("anResult").innerHTML = 'Loaded <b>' + CUES.length + ' cues</b> from the validated Sintel fixture. ' +
+        SUPPRESSED.length + ' sounds suppressed because the picture already showed them.';
+      // Decode the clip audio so Whisper can add speech subtitles when the user
+      // clicks "Name the sounds". Without this, lastBuffer stays null and Whisper skips.
+      fetch("clip.mp4").then(function(r){ return r.ok ? r.arrayBuffer() : null; }).then(function(ab){
+        if (!ab) return;
+        var AC = window.AudioContext || window.webkitAudioContext;
+        return new AC().decodeAudioData(ab);
+      }).then(function(buf){
+        if (!buf) return;
+        lastBuffer = buf;
+        $("bLabel").disabled = false;
+        setHint('Ready. Click to add speech subtitles via Whisper + rename sounds with Claude.');
+      }).catch(function(){
+        // clip.mp4 not locally served — enable button anyway so Claude naming still runs
+        $("bLabel").disabled = false;
+        setHint('Ready. Click to rename sounds with Claude. (Load clip via file picker for Whisper speech.)');
+      });
+    }).catch(function(){ /* fixture load failed — demo still works */ });
   }
   video.addEventListener("loadedmetadata", loadSintelFixtureIfDefault);
 
@@ -1083,9 +1099,7 @@
     return import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.1")
       .then(function(T) {
         return Promise.all([
-          T.pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny.en", {
-            dtype: { encoder_model: "fp32", decoder_model_merged: "q4" }
-          }),
+          T.pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", { dtype: "q8" }),
           getAudioAt16k(lastBuffer)
         ]);
       })
@@ -1235,8 +1249,9 @@
         runClaudeNaming();
       })
       .catch(function(err) {
-        console.warn("Whisper failed:", err);
-        stageDone("stg2", "unavailable — " + (err && err.message || String(err)));
+        var msg = err && err.message ? err.message : String(err);
+        stageDone("stg2", "failed: " + msg.slice(0, 60));
+        setHint('<span style="color:#E88">Whisper: ' + msg + '</span> — continuing with Claude naming.');
         runClaudeNaming();
       });
   });
