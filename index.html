@@ -286,8 +286,8 @@
 
   <div class="pipeline" id="pipeline">
     <div class="stage-line" id="stg1"><span class="dot"></span><span>1. Detect &mdash; FFT, onsets, RMS envelope</span><span class="detail" id="stg1d"></span></div>
-    <div class="stage-line" id="stg2"><span class="dot"></span><span>2. Rank by salience, keep the loudest and most distinct</span><span class="detail" id="stg2d"></span></div>
-    <div class="stage-line" id="stg3"><span class="dot"></span><span>3. Name + decide visibility &mdash; Claude reads two frames per sound</span><span class="detail" id="stg3d"></span></div>
+    <div class="stage-line" id="stg2"><span class="dot"></span><span>2. Transcribe speech &mdash; Whisper, runs locally, no API key</span><span class="detail" id="stg2d"></span></div>
+    <div class="stage-line" id="stg3"><span class="dot"></span><span>3. Name non-speech sounds &mdash; Claude reads two frames per sound</span><span class="detail" id="stg3d"></span></div>
     <div class="stage-line" id="stg4"><span class="dot"></span><span>4. Suppress anything the picture already shows</span><span class="detail" id="stg4d"></span></div>
     <div class="costBar" id="costBar">
       <span>Spent on this analysis: <span class="cost-val" id="costVal">$0.0000</span></span>
@@ -1037,26 +1037,77 @@
     });
   }
 
-  $("bLabel").addEventListener("click", function () {
-    if (!CUES.length) { setHint("Load a clip and let it detect sounds first."); return; }
-    $("bLabel").disabled = true;
-    showPipeline();
-    stageDone("stg1"); stageDone("stg2");
-    stageActive("stg3", "0 of " + CUES.length);
+  // ---------- stage 2: Whisper speech transcription (runs locally, no API key) ----------
 
-    SESSION_COST_USD = 0; SESSION_TOKENS = { input:0, output:0, cached:0 };
-    $("costVal").textContent = "$0.0000"; $("costTokens").textContent = "";
-    SUPPRESSED.length = 0;
+  function getAudioAt16k(audioBuf) {
+    var targetSr = 16000;
+    var targetLen = Math.ceil(audioBuf.duration * targetSr);
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    var ctx = new OAC(1, targetLen, targetSr);
+    var src = ctx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(ctx.destination);
+    src.start(0);
+    return ctx.startRendering().then(function(r) { return r.getChannelData(0); });
+  }
 
-    var sorted = CUES.slice().sort(function(a,b){ return a.start - b.start; });
+  function runWhisper(onProgress) {
+    if (!lastBuffer) return Promise.resolve([]);
+    onProgress('Loading Whisper (first run downloads ~40 MB, then cached)…');
+    return import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.1")
+      .then(function(T) {
+        return Promise.all([
+          T.pipeline("automatic-speech-recognition", "onnx-community/whisper-tiny.en", {
+            dtype: { encoder_model: "fp32", decoder_model_merged: "q4" }
+          }),
+          getAudioAt16k(lastBuffer)
+        ]);
+      })
+      .then(function(results) {
+        var transcriber = results[0];
+        var audio = results[1];
+        onProgress('Transcribing speech…');
+        return transcriber(audio, {
+          return_timestamps: true,
+          chunk_length_s: 30,
+          stride_length_s: 5
+        });
+      })
+      .then(function(result) {
+        var chunks = result.chunks || [];
+        if (!chunks.length && result.text && result.text.trim()) {
+          chunks = [{ timestamp: [0, lastBuffer.duration], text: result.text }];
+        }
+        return chunks
+          .map(function(c) {
+            return {
+              start: c.timestamp[0],
+              end: c.timestamp[1] || c.timestamp[0] + 2,
+              text: c.text.trim()
+            };
+          })
+          .filter(function(c) { return c.text.length > 0; });
+      });
+  }
+
+  // ---------- stage 3+4: Claude naming + suppression (non-speech only) ----------
+
+  function runClaudeNaming() {
+    // Only send non-dialogue cues to Claude — Whisper already handled speech.
+    var sorted = CUES.filter(function(c) { return c.kind !== "dialogue"; })
+                     .sort(function(a,b) { return a.start - b.start; });
     var i = 0, suppressedCount = 0;
+    stageActive("stg3", "0 of " + sorted.length);
 
     function step() {
       if (i >= sorted.length) {
-        stageDone("stg3", CUES.length + " named");
+        stageDone("stg3", (sorted.length - suppressedCount) + " named");
         stageDone("stg4", suppressedCount + " suppressed");
         buildSoundTrack(); renderCueList(); renderSuppressed();
-        setHint('Done. <b>' + CUES.length + '</b> captions kept, <b>' + suppressedCount + '</b> suppressed because the picture already showed them. Spent $' + SESSION_COST_USD.toFixed(4) + '.');
+        var dialogueCount = CUES.filter(function(c){ return c.kind === "dialogue"; }).length;
+        setHint('Done. <b>' + CUES.length + '</b> captions kept' +
+          (dialogueCount ? ' (' + dialogueCount + ' speech)' : '') +
+          ', <b>' + suppressedCount + '</b> suppressed. Spent $' + SESSION_COST_USD.toFixed(4) + '.');
         $("bLabel").disabled = false;
         return;
       }
@@ -1074,8 +1125,6 @@
         var n = resp.body.naming;
         if (!n) { i++; return step(); }
 
-        // The suppression rule: if the picture already shows what makes this sound,
-        // drop the caption entirely. This is the whole point of the project.
         if (n.visibility === "visible") {
           SUPPRESSED.push({
             id: "supp" + Date.now() + i,
@@ -1111,6 +1160,59 @@
       });
     }
     step();
+  }
+
+  $("bLabel").addEventListener("click", function () {
+    if (!CUES.length) { setHint("Load a clip and let it detect sounds first."); return; }
+    $("bLabel").disabled = true;
+    showPipeline();
+    stageDone("stg1");
+
+    SESSION_COST_USD = 0; SESSION_TOKENS = { input:0, output:0, cached:0 };
+    $("costVal").textContent = "$0.0000"; $("costTokens").textContent = "";
+    SUPPRESSED.length = 0;
+
+    // Stage 2: Whisper speech transcription (runs first, no API cost)
+    stageActive("stg2", lastBuffer ? "starting…" : "skipped (no audio buffer)");
+
+    runWhisper(function(msg) { stageActive("stg2", msg); })
+      .then(function(segments) {
+        // Remove placeholder dialogue cues from detection (they just say "speech");
+        // replace with real Whisper transcripts.
+        var idx = CUES.findIndex(function(c) { return c.kind === "dialogue"; });
+        while (idx >= 0) {
+          if (nodes[CUES[idx].id]) { nodes[CUES[idx].id].remove(); delete nodes[CUES[idx].id]; }
+          CUES.splice(idx, 1);
+          idx = CUES.findIndex(function(c) { return c.kind === "dialogue"; });
+        }
+        segments.forEach(function(seg, n) {
+          CUES.push({
+            id: "w" + n,
+            start: seg.start,
+            end: Math.min(seg.end, seg.start + 8),
+            text: seg.text,
+            kind: "dialogue",
+            x: 0.5, y: 0.82,
+            offscreen: "none",
+            behavior: "sustain",
+            intensity: 0.68,
+            texture: "clean",
+            note: "Speech transcribed by Whisper (tiny.en) running locally in your browser. No API call."
+          });
+        });
+        if (segments.length) {
+          stageDone("stg2", segments.length + " speech segment" + (segments.length !== 1 ? "s" : ""));
+        } else {
+          stageDone("stg2", !lastBuffer ? "skipped (no audio buffer)" : "no speech detected");
+        }
+        buildSoundTrack(); renderCueList();
+        runClaudeNaming();
+      })
+      .catch(function(err) {
+        console.warn("Whisper failed:", err);
+        stageDone("stg2", "unavailable — " + (err && err.message || String(err)));
+        runClaudeNaming();
+      });
   });
 
   // ---------- YouTube tab and URL handler ----------
