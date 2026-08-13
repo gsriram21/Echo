@@ -133,6 +133,48 @@
   .setup p, .setup li { color: var(--fg-dim); font-size: 13px; margin: 6px 0; }
   .setup a { color: var(--accent); }
   .setup code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+  /* new: source picker with tabs for local file + YouTube URL */
+  .srcTabs { display: flex; gap: 4px; margin-top: 12px; margin-bottom: 12px; }
+  .srcTabs button { background: var(--panel-2); border: 1px solid var(--line); color: var(--fg-dim); font: inherit; font-size: 12px; padding: 6px 14px; border-radius: 6px 6px 0 0; cursor: pointer; border-bottom: 0; }
+  .srcTabs button[aria-pressed="true"] { background: var(--panel); color: var(--fg); }
+  .srcPanel { display: none; padding: 12px 0 0; }
+  .srcPanel.on { display: block; }
+  .ytBox { display: flex; gap: 8px; align-items: center; }
+  .ytBox input { flex: 1; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); font: inherit; font-size: 13px; padding: 8px 11px; border-radius: 6px; }
+  .ytBox input:focus { outline: none; border-color: var(--accent); }
+
+  /* new: pipeline stages — live visualization of what's happening */
+  .pipeline { margin-top: 14px; padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; display: none; }
+  .pipeline.on { display: block; }
+  .pipeline .stage-line { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--fg-dim); padding: 5px 0; }
+  .pipeline .stage-line .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); flex-shrink: 0; }
+  .pipeline .stage-line.done .dot { background: var(--ink-3); }
+  .pipeline .stage-line.active .dot { background: var(--accent); box-shadow: 0 0 0 3px rgba(224,169,74,.18); animation: pulse 1.4s ease-in-out infinite; }
+  .pipeline .stage-line.done { color: var(--fg); }
+  .pipeline .stage-line.active { color: var(--fg); }
+  .pipeline .stage-line .detail { color: var(--fg-faint); font-size: 11px; margin-left: auto; font-variant-numeric: tabular-nums; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
+
+  .costBar { display: flex; align-items: center; gap: 12px; margin-top: 10px; font-size: 12px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+  .costBar .cost-val { color: var(--accent); font-weight: 500; }
+  .costBar .tokens { color: var(--fg-faint); font-size: 11px; }
+
+  .suppChip { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 12px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 999px; font-size: 12px; color: var(--fg-dim); cursor: pointer; }
+  .suppChip:hover { border-color: var(--accent); color: var(--fg); }
+  .suppChip .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #1A1A15; font-size: 11px; font-weight: 500; }
+
+  #suppPanel { display: none; margin-top: 12px; padding: 14px 16px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; max-height: 260px; overflow-y: auto; }
+  #suppPanel.on { display: block; }
+  #suppPanel .sitem { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--fg-dim); }
+  #suppPanel .sitem:last-child { border-bottom: 0; }
+  #suppPanel .sitem b { color: var(--fg); font-weight: 500; }
+  #suppPanel .sitem .t { color: var(--fg-faint); font-variant-numeric: tabular-nums; margin-right: 8px; }
+
+  /* new: confidence bar in the why panel */
+  .conf { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--fg-faint); }
+  .conf .bar { flex: 1; height: 3px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
+  .conf .bar span { display: block; height: 100%; background: var(--ink-3); }
 </style>
 </head>
 <body>
@@ -216,21 +258,53 @@
 </details>
 
 <div class="setup" id="analyseBox">
-  <h3>Generate the caption layer from the film</h3>
-  <p>This reads the actual audio and writes the cues itself &mdash; onsets, loudness, duration, stereo position, and sound type. Nothing is hardcoded to one clip. Point it at any film and it produces a caption layer for that film.</p>
-  <p style="margin-top:12px">
-    <label class="fileBtn">Analyse a film<input type="file" id="anFile" accept="video/*,audio/*" style="display:none"></label>
-    <button class="fileBtn" id="bLabel" style="margin-left:8px" disabled>Name the sounds</button>
-    <span style="margin-left:12px; font-size:12px; color:var(--fg-faint)">Pick <b>clip.mp4</b> &mdash; it loads the video and generates cues in one step.</span>
-  </p>
-  <div id="anProgress" style="display:none; margin-top:12px; font-size:13px; color:var(--fg-dim)"></div>
-  <div id="anResult" style="display:none; margin-top:12px"></div>
+  <h3>Generate the caption layer from any film</h3>
+  <p>Four stages, running here in the browser and a serverless function. The audio is analysed for onsets, loudness, duration and texture. Two frames per sound are shown to Claude, which names the sound and &mdash; the interesting bit &mdash; decides whether the picture already shows what makes it. If it does, the caption is dropped. A caption that says what the shot already says is noise.</p>
+
+  <div class="srcTabs" role="tablist">
+    <button id="tabLocal" aria-pressed="true">From a file</button>
+    <button id="tabYT" aria-pressed="false">From YouTube</button>
+  </div>
+
+  <div class="srcPanel on" id="panelLocal">
+    <p><label class="fileBtn">Choose a video file<input type="file" id="anFile" accept="video/*,audio/*" style="display:none"></label>
+    <span style="margin-left:12px; font-size:12px; color:var(--fg-faint)">Any mp4, mov, webm &mdash; audio only works too.</span></p>
+  </div>
+
+  <div class="srcPanel" id="panelYT">
+    <div class="ytBox">
+      <input id="ytUrl" type="url" placeholder="Paste a YouTube URL (e.g. a trailer)" spellcheck="false">
+      <button class="fileBtn" id="bYT">Load</button>
+    </div>
+    <p class="hint" style="margin-top:8px">Proxied through the serverless function &mdash; browsers cannot fetch YouTube video streams directly for CORS reasons. Short clips work best.</p>
+  </div>
+
+  <div style="margin-top:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+    <button class="fileBtn" id="bLabel" disabled>Name the sounds with Claude</button>
+    <span id="anHint" style="font-size:12px; color:var(--fg-faint)">Load a clip first.</span>
+  </div>
+
+  <div class="pipeline" id="pipeline">
+    <div class="stage-line" id="stg1"><span class="dot"></span><span>1. Detect &mdash; FFT, onsets, RMS envelope</span><span class="detail" id="stg1d"></span></div>
+    <div class="stage-line" id="stg2"><span class="dot"></span><span>2. Rank by salience, keep the loudest and most distinct</span><span class="detail" id="stg2d"></span></div>
+    <div class="stage-line" id="stg3"><span class="dot"></span><span>3. Name + decide visibility &mdash; Claude reads two frames per sound</span><span class="detail" id="stg3d"></span></div>
+    <div class="stage-line" id="stg4"><span class="dot"></span><span>4. Suppress anything the picture already shows</span><span class="detail" id="stg4d"></span></div>
+    <div class="costBar" id="costBar">
+      <span>Spent on this analysis: <span class="cost-val" id="costVal">$0.0000</span></span>
+      <span class="tokens" id="costTokens"></span>
+    </div>
+  </div>
+
+  <div id="anResult" style="display:none; margin-top:12px; font-size:13px; color:var(--fg-dim)"></div>
+  <div id="suppChipHolder"></div>
+  <div id="suppPanel"></div>
+
   <div class="row" style="margin-top:14px; border-top:1px solid var(--line); padding-top:14px">
-    <label>Density &mdash; how many sounds earn a caption</label>
+    <label>How many sounds to name &mdash; each is one Claude call</label>
     <div class="seg" id="segDensity">
-      <button data-v="12">Sparse</button>
-      <button data-v="24" aria-pressed="true">Balanced</button>
-      <button data-v="48">Dense</button>
+      <button data-v="6">Sparse (6)</button>
+      <button data-v="12" aria-pressed="true">Balanced (12)</button>
+      <button data-v="20">Dense (20)</button>
     </div>
   </div>
 </div>
@@ -254,48 +328,13 @@
 (function () {
   "use strict";
 
-  var CUES = [
-    { id:"c1", start:0.5, end:7.0, text:"wind over snow", kind:"ambient", x:0.5, y:0.16, offscreen:"none", behavior:"sustain", intensity:0.28, texture:"clean",
-      note:"Standard captions flash [wind] once or drop it entirely. It runs for seven seconds under everything else, so it is held open for seven seconds at low weight — present, not shouting." },
-    { id:"c2", start:2.2, end:2.7, text:"footstep", kind:"effect", x:0.42, y:0.84, offscreen:"none", behavior:"punch", intensity:0.35, texture:"clean",
-      note:"A single footfall. Short, tight, placed at ground level where the foot is. No stretch, because the sound does not last." },
-    { id:"c3", start:3.2, end:3.7, text:"footstep", kind:"effect", x:0.47, y:0.86, offscreen:"none", behavior:"punch", intensity:0.38, texture:"clean",
-      note:"Repeating it in a slightly different place reads as walking. Rhythm through repetition and position, rather than the flat word 'footsteps'." },
-    { id:"c4", start:5.5, end:13.0, text:"low strings", kind:"music", x:0.5, y:0.93, offscreen:"none", behavior:"sustain", intensity:0.45, texture:"clean",
-      note:"Score is not inside the world of the film, so it sits low at the frame edge — underneath the scene rather than in it. Held for its real length." },
-    { id:"c5", start:8.0, end:8.9, text:"she breathes", kind:"effect", x:0.5, y:0.58, offscreen:"none", behavior:"punch", intensity:0.25, texture:"muffled",
-      note:"Close and soft. Muffled texture — blurred, lower contrast — reads as intimate rather than distant." },
-    { id:"c6", start:10.5, end:12.0, text:"a cry, far off", kind:"effect", x:0.9, y:0.26, offscreen:"right", behavior:"approach", intensity:0.5, texture:"harsh",
-      note:"First sign of the dragon, and it is off screen. The arrow marks the direction it comes from, and it grows because it is getting closer." },
-    { id:"c7", start:13.5, end:18.0, text:"wings", kind:"effect", x:0.66, y:0.34, offscreen:"none", behavior:"approach", intensity:0.7, texture:"clean",
-      note:"This is the Jaws problem. A hearing viewer knows something is arriving before the picture shows it. Four seconds of growth carries the arrival." },
-    { id:"c8", start:15.0, end:22.5, text:"strings climbing", kind:"music", x:0.5, y:0.93, offscreen:"none", behavior:"approach", intensity:0.6, texture:"clean",
-      note:"The score rising is the structure of the scene. A single caption reading [dramatic music] throws that away completely." },
-    { id:"c9", start:19.0, end:19.4, text:"impact", kind:"effect", x:0.35, y:0.5, offscreen:"none", behavior:"punch", intensity:0.85, texture:"harsh",
-      note:"Loud and violent. Large, heavy, fractured edges. It covers part of the frame, and that is the right trade for a sound this important." },
-    { id:"c10", start:20.4, end:20.8, text:"steel on steel", kind:"effect", x:0.6, y:0.46, offscreen:"none", behavior:"punch", intensity:0.7, texture:"clean",
-      note:"Sword contact. Sharp, clean edge, placed where the blades meet." },
-    { id:"c11", start:21.8, end:22.2, text:"steel on steel", kind:"effect", x:0.42, y:0.54, offscreen:"none", behavior:"punch", intensity:0.72, texture:"clean",
-      note:"Second strike, moved across the frame. Position carries the choreography of the fight." },
-    { id:"c12", start:23.5, end:25.8, text:"roar", kind:"effect", x:0.5, y:0.4, offscreen:"none", behavior:"approach", intensity:0.98, texture:"harsh",
-      note:"The loudest sound in the clip. Maximum size and weight, harsh texture. Everything else is calibrated so this can be the ceiling." },
-    { id:"c13", start:26.2, end:29.5, text:"fire", kind:"effect", x:0.62, y:0.62, offscreen:"none", behavior:"sustain", intensity:0.75, texture:"harsh",
-      note:"Sustained and violent. Opens across its duration so you feel it continue instead of reading a single flash." },
-    { id:"c14", start:27.5, end:34.5, text:"drums", kind:"music", x:0.5, y:0.95, offscreen:"none", behavior:"pulse", intensity:0.7, texture:"clean",
-      note:"Rhythmic sound gets the pulse behavior — scale moving on the beat. Tempo is information captions normally discard." },
-    { id:"c15", start:30.8, end:32.2, text:"Scales!", kind:"dialogue", x:0.36, y:0.46, offscreen:"none", behavior:"punch", intensity:0.8, texture:"clean",
-      note:"Speech still reads as speech, in white, but placed at the speaker. Who is talking stops being a guess." },
-    { id:"c16", start:33.4, end:35.0, text:"someone running", kind:"effect", x:0.08, y:0.72, offscreen:"left", behavior:"approach", intensity:0.5, texture:"clean",
-      note:"Arriving from the left, out of frame. The arrow says which way to look before the picture gets there." },
-    { id:"c17", start:35.5, end:43.5, text:"full orchestra", kind:"music", x:0.5, y:0.95, offscreen:"none", behavior:"sustain", intensity:0.85, texture:"clean",
-      note:"Eight seconds of score. Standard captions give two seconds of [epic music] and then nothing, leaving a Deaf viewer in silence through the climax." },
-    { id:"c18", start:38.6, end:39.1, text:"crash", kind:"effect", x:0.7, y:0.56, offscreen:"none", behavior:"punch", intensity:0.9, texture:"harsh",
-      note:"Punches through the sustained score. Two sounds coexisting is ordinary for a hearing viewer and impossible on a single caption line." },
-    { id:"c19", start:44.0, end:47.5, text:"strings falling", kind:"music", x:0.5, y:0.93, offscreen:"none", behavior:"recede", intensity:0.55, texture:"clean",
-      note:"Recede — shrinking and fading across its duration. The release after a climax is as structural as the build." },
-    { id:"c20", start:48.0, end:51.8, text:"wind again", kind:"ambient", x:0.5, y:0.18, offscreen:"none", behavior:"sustain", intensity:0.25, texture:"clean",
-      note:"Returns to where it began. The bookend is a deliberate authorial choice, and today's captions have no way to express it." }
-  ];
+  // Cues are loaded at runtime — either from cues.sintel.json (the validated hand-run fixture
+  // that ships with the default clip) or produced by the detect + name pipeline for any other
+  // video. Nothing about a specific film is hardcoded here.
+  var CUES = [];
+  var SUPPRESSED = []; // sounds the model saw and decided not to caption
+  var SESSION_COST_USD = 0;
+  var SESSION_TOKENS = { input: 0, output: 0, cached: 0 };
 
   var $ = function (id) { return document.getElementById(id); };
   var video = $("v"), stage = $("stage"), capLayer = $("capLayer"), stdLayer = $("stdLayer");
@@ -388,8 +427,16 @@
 
     if(c.texture==="muffled"){ plate.style.filter="blur(1.5px)"; opacity*=0.82; }
     else plate.style.filter="";
+
+    // --- text-shadow: static in reduceMotion, animated in live mode ---
     if(c.texture==="harsh"){
-      word.style.textShadow="1.2px 0 rgba(244,241,232,.5), -1.2px 0 rgba(244,241,232,.32), 0 1px 6px rgba(0,0,0,.6)";
+      if(state.reduceMotion){
+        word.style.textShadow="1.2px 0 rgba(244,241,232,.5), -1.2px 0 rgba(244,241,232,.32), 0 1px 6px rgba(0,0,0,.6)";
+      } else {
+        // Chromatic split that breathes: pixel distance oscillates with intensity
+        var split=(1.5+c.intensity*2.5+Math.sin(t*8)*c.intensity*1.5).toFixed(2);
+        word.style.textShadow=split+"px 0 rgba(244,180,100,.6), -"+split+"px 0 rgba(120,220,255,.45), 0 1px 6px rgba(0,0,0,.7)";
+      }
     } else {
       word.style.textShadow="0 1px 6px rgba(0,0,0,.55)";
     }
@@ -400,7 +447,27 @@
     bar.style.background=col;
 
     el.style.opacity=clamp(opacity,0,1).toFixed(3);
-    el.style.transform="scale("+scale.toFixed(3)+")";
+
+    // --- build transform: scale + behavior-specific motion + harsh shake ---
+    var extraTranslateX=0, extraTranslateY=0, rotDeg=0;
+    if(!state.reduceMotion){
+      // approach: slight tilt that resolves to upright as it arrives
+      if(c.behavior==="approach") rotDeg=(1-p)*-4;
+      // sustain: slow upward drift — sound dissipating
+      if(c.behavior==="sustain") extraTranslateY=-p*8;
+      // pulse: vertical bounce synchronized with scale oscillation
+      if(c.behavior==="pulse") extraTranslateY=Math.sin(t*Math.PI*2)*c.intensity*3;
+      // harsh texture: continuous random micro-jitter (violent/unstable feel)
+      if(c.texture==="harsh"){
+        var jitter=c.intensity*2.5;
+        extraTranslateX=(Math.random()*2-1)*jitter;
+        extraTranslateY+=(Math.random()*2-1)*jitter;
+      }
+    }
+    var transformStr="scale("+scale.toFixed(3)+")";
+    if(extraTranslateX||extraTranslateY) transformStr="translate("+extraTranslateX.toFixed(1)+"px,"+extraTranslateY.toFixed(1)+"px) "+transformStr;
+    if(rotDeg) transformStr=transformStr+" rotate("+rotDeg.toFixed(2)+"deg)";
+    el.style.transform=transformStr;
     el.classList.toggle("sel", state.selected===c.id);
     el.style.display="block";
 
@@ -507,6 +574,32 @@
     tryNextSource();
   });
   video.addEventListener("loadedmetadata", function(){ status("",false); buildSoundTrack(); });
+
+  // On first successful load of the default Sintel clip, hydrate CUES from the
+  // validated fixture. The fixture is the output of one hand-run of stage 3 — it
+  // proves the prompt works and gives the demo something honest to show at t=0.
+  var _fixtureTried = false;
+  function loadSintelFixtureIfDefault() {
+    if (_fixtureTried) return;
+    if (usingLocal) return;                                      // custom video — don't override
+    if (!/clip\.mp4$|sintel_trailer/i.test(video.currentSrc)) return;
+    _fixtureTried = true;
+    fetch("cues.sintel.json").then(function(r){ return r.ok ? r.json() : null; }).then(function(data){
+      if (!data || !Array.isArray(data.cues)) return;
+      capLayer.innerHTML = ""; nodes = {}; CUES.length = 0;
+      data.cues.forEach(function(c){ CUES.push(c); });
+      if (Array.isArray(data.suppressed)) {
+        SUPPRESSED = data.suppressed.map(function(s, i){
+          return { id: "supp" + i, start: s.start, end: s.end, text: s.candidate, visibility: s.visibility, reason: s.reason };
+        });
+      }
+      buildSoundTrack(); renderCueList(); renderSuppressed();
+      $("anResult").style.display = "block";
+      $("anResult").innerHTML = 'Loaded <b>' + CUES.length + ' cues</b> from the validated Sintel fixture ' +
+        '(<code>cues.sintel.json</code>). ' + SUPPRESSED.length + ' more sounds were detected but suppressed because the picture already showed them.';
+    }).catch(function(){ /* silent — the demo still works with the detected cues */ });
+  }
+  video.addEventListener("loadedmetadata", loadSintelFixtureIfDefault);
 
   function play(){
     var p=video.play();
@@ -783,6 +876,9 @@
   }
 
   var allCues = null;
+
+  // Called after detection produces `allCues`, and again when the user changes
+  // the density selector. Applies restraint and gives the user a rough cost preview.
   function applyDensity(n) {
     if (!allCues) return;
     var keep = allCues.slice(0, n).sort(function (a, b) { return a.start - b.start; });
@@ -790,121 +886,261 @@
     CUES.length = 0; keep.forEach(function (c) { CUES.push(c); });
     buildSoundTrack(); renderCueList(); state.selected = null;
     $("anResult").style.display = "block";
-    $("anResult").innerHTML = '<b style="color:var(--accent);font-weight:500">' + CUES.length + ' cues</b> ' +
-      'kept from ' + allCues.length + ' detected sounds. Restraint is a setting, not an accident &mdash; ' +
-      'the rest were real sounds that did not earn a caption.';
+    $("anResult").innerHTML = 'Kept <b>' + CUES.length + '</b> of ' + allCues.length +
+      ' detected sounds. Restraint is a setting, not an accident &mdash; the rest were real sounds that did not earn a caption.';
+    var estCost = CUES.length * 0.012;
+    setHint('Ready. Naming ' + CUES.length + ' sounds with Claude will use roughly $' + estCost.toFixed(2) + ' of API credit.');
+    $("bLabel").disabled = false;
   }
   segHandler($("segDensity"), function (v) { applyDensity(parseInt(v, 10)); });
 
+  // Shared analysis path used by both the local-file picker and the YouTube proxy.
+  function analyseFromBlob(blob, sourceLabel) {
+    showPipeline();
+    stageActive("stg1", "reading " + Math.round(blob.size / 1024) + " KB");
+    return blob.arrayBuffer()
+      .then(function (ab) {
+        stageActive("stg1", "decoding audio");
+        var AC = window.AudioContext || window.webkitAudioContext;
+        return new AC().decodeAudioData(ab);
+      })
+      .then(function (buf) {
+        lastBuffer = buf;
+        stageActive("stg1", buf.duration.toFixed(1) + "s of audio");
+        return new Promise(function (res) {
+          setTimeout(function () {
+            res(analyseBuffer(buf, function (p) {
+              stageActive("stg1", buf.duration.toFixed(1) + "s (" + Math.round(p * 100) + "%)");
+            }));
+          }, 30);
+        });
+      })
+      .then(function (cues) {
+        allCues = cues;
+        stageDone("stg1", cues.length + " sounds detected");
+        stageActive("stg2");
+        var seg = $("segDensity").querySelector('[aria-pressed="true"]');
+        applyDensity(parseInt(seg ? seg.dataset.v : "12", 10));
+        stageDone("stg2", CUES.length + " kept");
+        setHint('Ready to name <b>' + CUES.length + '</b> sounds from <b>' + sourceLabel + '</b>. Each is one Claude call.');
+      })
+      .catch(function (err) {
+        setHint('<span style="color:#E88">Could not analyse: ' + (err && err.message || err) + '</span>');
+      });
+  }
+
   $("anFile").addEventListener("change", function (e) {
     var f = e.target.files[0]; if (!f) return;
-    usingLocal = true; status("", false);
+    usingLocal = true; status("", false); _fixtureTried = true;
     video.src = URL.createObjectURL(f); video.load();
     $("bigPlay").style.display = "flex";
-    var prog = $("anProgress"); prog.style.display = "block"; prog.textContent = "Reading audio…";
-    f.arrayBuffer().then(function (ab) {
-      var AC = window.AudioContext || window.webkitAudioContext;
-      var ac = new AC();
-      prog.textContent = "Decoding audio…";
-      return ac.decodeAudioData(ab);
-    }).then(function (buf) {
-      lastBuffer = buf;
-      prog.textContent = "Analysing " + buf.duration.toFixed(1) + "s of audio…";
-      return new Promise(function (res) {
-        setTimeout(function () {
-          res(analyseBuffer(buf, function (p) { prog.textContent = "Analysing… " + Math.round(p * 100) + "%"; }));
-        }, 30);
-      });
-    }).then(function (cues) {
-      allCues = cues;
-      prog.textContent = "Found " + cues.length + " sounds. Press \u201cName the sounds\u201d to have a model identify them.";
-      $("bLabel").disabled = false;
-      var seg = $("segDensity").querySelector('[aria-pressed="true"]');
-      applyDensity(parseInt(seg ? seg.dataset.v : "24", 10));
-    }).catch(function (err) {
-      prog.textContent = "Could not analyse that file: " + (err && err.message ? err.message : err);
-    });
+    SUPPRESSED.length = 0; renderSuppressed();
+    analyseFromBlob(f, f.name);
   });
 
-
-  // ---------- naming stage: a model says what each sound is ----------
+  // ---------- pipeline UI: stage lights, cost meter, suppression panel ----------
 
   var lastBuffer = null;
+  var _pipelineOn = false;
 
-  var AUDIOSET_KIND = [
-    [/speech|conversation|narrat|monologue|shout|whisper|child speech|male speech|female speech/i, "dialogue"],
-    [/music|instrument|orchestra|violin|cello|piano|drum|guitar|brass|string|choir|singing|soundtrack/i, "music"],
-    [/\bwind\b|\brain\b|thunder|\bstream\b|ocean|waves|\bfire\b|crackle|ambient|silence|room tone|\broom\b|outside|rural|environmental|\bwater\b|rustl/i, "ambient"]
-  ];
-  function kindFromLabel(lbl) {
-    for (var i = 0; i < AUDIOSET_KIND.length; i++) if (AUDIOSET_KIND[i][0].test(lbl)) return AUDIOSET_KIND[i][1];
-    return "effect";
-  }
-  function shortLabel(lbl) {
-    var t = lbl.split(",")[0].trim().toLowerCase();
-    t = t.replace(/^(sounds? of|the) /, "");
-    if (t.split(" ").length > 3) t = t.split(" ").slice(0, 3).join(" ");
-    return t;
+  function showPipeline() { $("pipeline").classList.add("on"); _pipelineOn = true; ["stg1","stg2","stg3","stg4"].forEach(function(s){ $(s).classList.remove("active","done"); $(s+"d").textContent=""; }); }
+  function stageActive(id, detail) { $(id).classList.add("active"); $(id).classList.remove("done"); if (detail !== undefined) $(id+"d").textContent = detail; }
+  function stageDone(id, detail)   { $(id).classList.add("done");   $(id).classList.remove("active"); if (detail !== undefined) $(id+"d").textContent = detail; }
+  function setHint(html)           { $("anHint").innerHTML = html; }
+
+  // Rough token → dollar for Sonnet 4.6. Server returns actual usage; we accumulate it.
+  var PRICE_IN_PER_MTOK  = 3.00;
+  var PRICE_OUT_PER_MTOK = 15.00;
+  var PRICE_CACHED_PER_MTOK = 0.30;
+  function addUsage(u) {
+    if (!u) return;
+    var freshIn = (u.input_tokens || 0) - (u.cache_read_input_tokens || 0);
+    SESSION_TOKENS.input  += freshIn;
+    SESSION_TOKENS.output += (u.output_tokens || 0);
+    SESSION_TOKENS.cached += (u.cache_read_input_tokens || 0);
+    SESSION_COST_USD +=
+      (freshIn / 1e6) * PRICE_IN_PER_MTOK +
+      ((u.output_tokens || 0) / 1e6) * PRICE_OUT_PER_MTOK +
+      ((u.cache_read_input_tokens || 0) / 1e6) * PRICE_CACHED_PER_MTOK;
+    $("costVal").textContent = "$" + SESSION_COST_USD.toFixed(4);
+    $("costTokens").textContent = SESSION_TOKENS.input + " in + " + SESSION_TOKENS.output + " out"
+      + (SESSION_TOKENS.cached ? " (" + SESSION_TOKENS.cached + " cached)" : "");
   }
 
-  function sliceTo16k(buf, start, end) {
-    var sr = buf.sampleRate;
-    var i0 = Math.max(0, Math.floor(start * sr)), i1 = Math.min(buf.length, Math.ceil(end * sr));
-    var len = Math.max(1600, i1 - i0);
-    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    var off = new OAC(1, Math.ceil(len * 16000 / sr), 16000);
-    var tmp = off.createBuffer(1, len, sr);
-    var d = tmp.getChannelData(0), L = buf.getChannelData(0);
-    var R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
-    for (var i = 0; i < len; i++) { var j = i0 + i; d[i] = j < buf.length ? (L[j] + R[j]) * 0.5 : 0; }
-    var src = off.createBufferSource(); src.buffer = tmp; src.connect(off.destination); src.start();
-    return off.startRendering().then(function (r) { return r.getChannelData(0); });
+  function renderSuppressed() {
+    var holder = $("suppChipHolder"), panel = $("suppPanel");
+    holder.innerHTML = ""; panel.innerHTML = ""; panel.classList.remove("on");
+    if (!SUPPRESSED.length) return;
+    var chip = document.createElement("button");
+    chip.className = "suppChip";
+    chip.innerHTML = '<span class="badge">' + SUPPRESSED.length + '</span> suppressed &mdash; the picture already showed them';
+    chip.addEventListener("click", function(){ panel.classList.toggle("on"); });
+    holder.appendChild(chip);
+    SUPPRESSED.forEach(function(s){
+      var d = document.createElement("div");
+      d.className = "sitem";
+      d.innerHTML = '<span class="t">' + s.start.toFixed(1) + 's</span><b>' + s.text + '</b> &mdash; ' + s.reason;
+      panel.appendChild(d);
+    });
+  }
+
+  // ---------- frame extraction: draw the video to canvas at time t, return base64 JPEG ----------
+
+  function extractFrame(t) {
+    return new Promise(function (resolve, reject) {
+      if (!video.videoWidth) return reject(new Error("video has no dimensions yet"));
+      var targetW = 512;
+      var scale = targetW / video.videoWidth;
+      var canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      var ctx = canvas.getContext("2d");
+      var wasPaused = video.paused;
+      var onSeeked = function () {
+        video.removeEventListener("seeked", onSeeked);
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          var dataUrl = canvas.toDataURL("image/jpeg", 0.78);
+          resolve(dataUrl.split(",")[1]); // base64 without data: prefix
+        } catch (err) { reject(err); }
+        if (!wasPaused) video.play().catch(function(){});
+      };
+      video.addEventListener("seeked", onSeeked);
+      video.pause();
+      try { video.currentTime = Math.max(0, Math.min(t, video.duration - 0.05)); }
+      catch (err) { video.removeEventListener("seeked", onSeeked); reject(err); }
+    });
+  }
+
+  // ---------- naming stage: Claude vision reads the picture and decides ----------
+
+  function nameOneCue(c, prev, next) {
+    return Promise.all([
+      extractFrame(c.start),
+      extractFrame(Math.min(c.start + 0.4, c.end - 0.05, c.start + (c.end - c.start) * 0.4))
+    ]).then(function (frames) {
+      var evidence = {
+        start_s: +c.start.toFixed(2),
+        end_s: +c.end.toFixed(2),
+        duration_s: +(c.end - c.start).toFixed(2),
+        loudness_rel: +c.intensity.toFixed(3),
+        behavior: c.behavior,
+        texture: c.texture,
+        detected_kind_guess: c.kind
+      };
+      var context = [prev, next].filter(Boolean).map(function (p) { return { start: +p.start.toFixed(1), text: p.text }; });
+      return fetch("/api/name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ frames: frames, evidence: evidence, context: context })
+      }).then(function (r) { return r.json().then(function(j){ return { ok: r.ok, body: j }; }); });
+    });
   }
 
   $("bLabel").addEventListener("click", function () {
-    if (!lastBuffer || !CUES.length) return;
-    var prog = $("anProgress"); prog.style.display = "block";
-    prog.textContent = "Loading the sound-recognition model (first run downloads it, then it is cached)…";
+    if (!CUES.length) { setHint("Load a clip and let it detect sounds first."); return; }
     $("bLabel").disabled = true;
+    showPipeline();
+    stageDone("stg1"); stageDone("stg2");
+    stageActive("stg3", "0 of " + CUES.length);
 
-    import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.1")
-      .then(function (T) {
-        return T.pipeline("audio-classification", "Xenova/ast-finetuned-audioset-10-10-0.4593", { dtype: "q8" });
-      })
-      .then(function (clf) {
-        var i = 0;
-        function step() {
-          if (i >= CUES.length) {
-            prog.textContent = "Named " + CUES.length + " sounds.";
-            buildSoundTrack(); renderCueList(); $("bLabel").disabled = false;
-            return;
-          }
-          var c = CUES[i];
-          prog.textContent = "Naming sound " + (i + 1) + " of " + CUES.length + "…";
-          sliceTo16k(lastBuffer, c.start, Math.min(c.end, c.start + 4))
-            .then(function (pcm) { return clf(pcm, { top_k: 3 }); })
-            .then(function (out) {
-              if (out && out.length) {
-                var best = out[0];
-                c.text = shortLabel(best.label);
-                c.kind = kindFromLabel(best.label);
-                if (c.kind === "music") c.y = 0.94;
-                c.note = "Named “" + best.label + "” with " + Math.round(best.score * 100) +
-                  "% confidence by an audio classifier trained on AudioSet. Alternatives: " +
-                  out.slice(1).map(function (o) { return o.label + " " + Math.round(o.score * 100) + "%"; }).join(", ") +
-                  ". Timing, loudness, position and behaviour all come from the waveform, not the model. " + (c.note || "");
-              }
-              i++; setTimeout(step, 0);
-            })
-            .catch(function () { i++; setTimeout(step, 0); });
+    SESSION_COST_USD = 0; SESSION_TOKENS = { input:0, output:0, cached:0 };
+    $("costVal").textContent = "$0.0000"; $("costTokens").textContent = "";
+    SUPPRESSED.length = 0;
+
+    var sorted = CUES.slice().sort(function(a,b){ return a.start - b.start; });
+    var i = 0, suppressedCount = 0;
+
+    function step() {
+      if (i >= sorted.length) {
+        stageDone("stg3", CUES.length + " named");
+        stageDone("stg4", suppressedCount + " suppressed");
+        buildSoundTrack(); renderCueList(); renderSuppressed();
+        setHint('Done. <b>' + CUES.length + '</b> captions kept, <b>' + suppressedCount + '</b> suppressed because the picture already showed them. Spent $' + SESSION_COST_USD.toFixed(4) + '.');
+        $("bLabel").disabled = false;
+        return;
+      }
+      var c = sorted[i];
+      var prev = sorted[i-1], next = sorted[i+1];
+      stageActive("stg3", (i+1) + " of " + sorted.length + ' — asking about "' + c.text + '"');
+
+      nameOneCue(c, prev, next).then(function (resp) {
+        if (!resp.ok) {
+          setHint('<span style="color:#E88">Name call failed for cue "' + c.text + '": ' + (resp.body && resp.body.error || "unknown") + '</span>');
+          $("bLabel").disabled = false;
+          return;
         }
-        step();
-      })
-      .catch(function (err) {
-        prog.textContent = "Could not load the model: " + (err && err.message ? err.message : err) +
-          " — the analysis labels stay as they are. Everything else still works.";
+        addUsage(resp.body.usage);
+        var n = resp.body.naming;
+        if (!n) { i++; return step(); }
+
+        // The suppression rule: if the picture already shows what makes this sound,
+        // drop the caption entirely. This is the whole point of the project.
+        if (n.visibility === "visible") {
+          SUPPRESSED.push({
+            id: "supp" + Date.now() + i,
+            start: c.start, end: c.end,
+            text: n.text, visibility: "visible",
+            reason: n.reason || "The picture already shows this sound."
+          });
+          var idx = CUES.findIndex(function(x){ return x.id === c.id; });
+          if (idx >= 0) {
+            if (nodes[c.id]) { nodes[c.id].remove(); delete nodes[c.id]; }
+            CUES.splice(idx, 1);
+          }
+          suppressedCount++;
+          renderSuppressed();
+          stageActive("stg4", suppressedCount + " suppressed so far");
+        } else {
+          c.text = n.text;
+          c.x = typeof n.x === "number" ? clamp(n.x, 0, 1) : c.x;
+          c.y = typeof n.y === "number" ? clamp(n.y, 0, 1) : c.y;
+          c.offscreen = n.offscreen || c.offscreen || "none";
+          c.confidence = n.confidence;
+          c.visibility = n.visibility;
+          c.note = n.reason + ' <span style="color:var(--fg-faint)">— Claude, ' + Math.round((n.confidence || 0)*100) + '% confidence.</span>' +
+            (n.visibility === "partly" ? ' <span style="color:var(--fg-faint)">Rendered at reduced intensity because part of the source is visible.</span>' : '');
+          if (n.visibility === "partly") c.intensity = Math.max(0.15, c.intensity * 0.6);
+          buildSoundTrack();
+        }
+        i++;
+        setTimeout(step, 0);
+      }).catch(function (err) {
+        setHint('<span style="color:#E88">Error naming cue: ' + err.message + '</span>');
         $("bLabel").disabled = false;
       });
+    }
+    step();
+  });
+
+  // ---------- YouTube tab and URL handler ----------
+
+  function switchTab(which) {
+    ["Local","YT"].forEach(function(t){
+      $("tab"+t).setAttribute("aria-pressed", t===which);
+      $("panel"+t).classList.toggle("on", t===which);
+    });
+  }
+  $("tabLocal").addEventListener("click", function(){ switchTab("Local"); });
+  $("tabYT").addEventListener("click", function(){ switchTab("YT"); });
+
+  $("bYT").addEventListener("click", function () {
+    var url = $("ytUrl").value.trim();
+    if (!url) return;
+    usingLocal = true; status("", false); _fixtureTried = true;
+    SUPPRESSED.length = 0; renderSuppressed();
+    setHint('Fetching from YouTube via the serverless proxy… this can take 10&ndash;30s.');
+    var proxied = "/api/youtube?url=" + encodeURIComponent(url);
+    video.src = proxied; video.load();
+    $("bigPlay").style.display = "flex";
+    fetch(proxied).then(function(r){
+      if (!r.ok) throw new Error("proxy returned " + r.status);
+      return r.blob();
+    }).then(function(blob){
+      return analyseFromBlob(blob, "YouTube");
+    }).catch(function(err){
+      setHint('<span style="color:#E88">YouTube fetch failed: ' + err.message + '</span>');
+    });
   });
 
   buildSoundTrack(); renderCueList(); setMode("echo"); tryNextSource();

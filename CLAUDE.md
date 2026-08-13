@@ -31,10 +31,16 @@ anything about how captions render.
 
 ## Stack
 
-- Single self-contained `index.html`. No build step, no dependencies, no server.
-- Vanilla JS. Do not introduce React, a bundler, or npm packages without being asked.
-- Opens by double-clicking the file. Keep it that way — zero-friction demo matters more
-  than architecture here.
+- Vanilla JS frontend in a single `index.html`. No framework, no bundler.
+- Two serverless functions in `api/`:
+  - `api/name.js` calls Claude (Sonnet 4.6) with two video frames + measured evidence per cue.
+    Applies the suppression rule from `PROMPT.md`.
+  - `api/youtube.js` proxies a YouTube video stream via `@distube/ytdl-core` so the browser
+    can decode it (bypasses CORS on Google's video hosts).
+- `cues.sintel.json` ships as the default fixture for the Sintel clip. Loaded on startup.
+- `dev.js` is a tiny local dev server (no Vercel CLI needed). Run `npm run dev`.
+- Deploys to Vercel. `ANTHROPIC_API_KEY` goes in `.env.local` (local) or Vercel env vars
+  (production). Never in browser code.
 
 ## Non-negotiable technical rule
 
