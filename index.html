@@ -55,7 +55,8 @@
   }
   .plate .chev { font-size: .68em; opacity: .5; line-height: 1; font-weight: 400; }
   .cue .bar { height: 1.5px; margin-top: 7px; opacity: .8; }
-  .cue.sel .plate { outline: 1px dashed var(--accent); outline-offset: 6px; }
+  /* Selection outline only in author mode — hidden during playback */
+  body.authoring .cue.sel .plate { outline: 1px dashed var(--accent); outline-offset: 6px; }
 
   #edgeL, #edgeR { position: absolute; top: 0; bottom: 0; width: 22%; pointer-events: none; opacity: 0; transition: opacity .18s; }
   #edgeL { left: 0; background: linear-gradient(90deg, rgba(244,241,232,.10), transparent); }
@@ -477,9 +478,31 @@
     var yMin = state.occlusion==="low" ? 0.62 : state.occlusion==="mid" ? 0.06 : 0.02;
     var yMax = 0.97;
 
-    var cxp = c.offscreen==="left" ? 0 : c.offscreen==="right" ? 1 : c.x;
+    // Deterministic positional scatter: if multiple cues share the same text AND
+    // nearly the same position (within 0.15 of each other), spread them apart so
+    // they don't all stack. Seeded by cue ID so it's stable across frames.
+    var spreadX = c.x, spreadY = clamp(c.y, yMin, yMax);
+    if (c.offscreen === "none") {
+      var siblings = CUES.filter(function(o) {
+        return o.id !== c.id &&
+          o.text === c.text &&
+          Math.abs(o.x - c.x) < 0.15 &&
+          Math.abs(o.y - c.y) < 0.15;
+      });
+      if (siblings.length > 0) {
+        // Hash the cue id to a stable angle, then push outward
+        var hash = 0;
+        for (var hi = 0; hi < c.id.length; hi++) hash = (hash * 31 + c.id.charCodeAt(hi)) & 0xffff;
+        var angle = (hash / 0xffff) * Math.PI * 2;
+        var radius = 0.12 + (hash % 7) * 0.02; // 0.12–0.26 spread radius
+        spreadX = clamp(c.x + Math.cos(angle) * radius, 0.05, 0.95);
+        spreadY = clamp(c.y + Math.sin(angle) * radius * 0.6, yMin, yMax);
+      }
+    }
+
+    var cxp = c.offscreen==="left" ? 0 : c.offscreen==="right" ? 1 : spreadX;
     var left = cxp*sw - ew/2;
-    var top  = clamp(c.y, yMin, yMax)*sh - eh/2;
+    var top  = spreadY*sh - eh/2;
     left = clamp(left, pad, Math.max(pad, sw-ew-pad));
     top  = clamp(top,  pad, Math.max(pad, sh-eh-pad));
     el.style.left=left.toFixed(1)+"px";
@@ -628,7 +651,10 @@
     c.y=+clamp((e.clientY-r.top)/r.height,0,1).toFixed(3);
     c.offscreen="none"; fillFields(c);
   });
-  document.querySelector("details.author").addEventListener("toggle", function(e){ state.authoring=e.target.open; });
+  document.querySelector("details.author").addEventListener("toggle", function(e){
+    state.authoring=e.target.open;
+    document.body.classList.toggle("authoring", e.target.open);
+  });
 
   function renderCueList(){
     var list=$("cueList"); list.innerHTML="";
